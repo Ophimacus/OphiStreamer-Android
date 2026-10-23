@@ -424,7 +424,7 @@ private fun HintBar(onToggleQuick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Hint("A", "Play") {}
-        Hint("Y", "Link Check") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
+        Hint("Y", "Connection") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
         Hint("X", "All PCs") { context.startActivity(Intent(context, PcView::class.java)) }
         Spacer(Modifier.weight(1f))
         Hint("☰", "Quick menu", onClick = onToggleQuick)

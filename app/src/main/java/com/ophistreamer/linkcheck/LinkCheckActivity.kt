@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -120,7 +121,7 @@ class LinkCheckActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
                 ) {
-                    TesterScreen(onKeepScreenOn = ::keepScreenOn)
+                    ConnectionScreen(onKeepScreenOn = ::keepScreenOn)
                 }
             }
         }
@@ -154,159 +155,203 @@ class LinkCheckActivity : ComponentActivity() {
     }
 }
 
+private enum class StepState { Waiting, Running, Done, Failed, Skipped }
+
+private class Fix(val title: String, val detail: String, val action: String? = null, val onAction: (() -> Unit)? = null)
+
+private data class Verdict(val title: String, val summary: String, val color: Color)
+
+private const val CHECK_SECONDS = 30
+
+/**
+ * Connection check, made for players rather than testers: one button, four plain steps, a grade,
+ * things to fix with one-tap actions, and the best settings applied automatically.
+ * Everything technical sits under "Show details".
+ */
 @Composable
-fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
+fun ConnectionScreen(onKeepScreenOn: (Boolean) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
     var wifi by remember { mutableStateOf(NetProbe.wifiStatus(context)) }
     var hotspot by remember { mutableStateOf(NetProbe.phoneHotspot(context)) }
-    var host by remember { mutableStateOf(if (hotspot != null) "" else wifi.gateway ?: "192.168.137.1") }
-    var scanning by remember { mutableStateOf(false) }
-    var foundPcs by remember { mutableStateOf(listOf<String>()) }
+    var host by remember { mutableStateOf(if (hotspot != null) "" else wifi.gateway ?: "") }
     var controllers by remember { mutableStateOf(DeviceProbe.controllers()) }
     val screen = remember { DeviceProbe.screen(context) }
     val decoders = remember { DeviceProbe.decoders() }
     val advice = remember { DeviceProbe.advice(screen, decoders) }
-    var durationSec by remember { mutableIntStateOf(60) }
+
     var running by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
-    var phase by remember { mutableStateOf("") }
+    val stepNames = listOf("Finding your PC", "Measuring delay", "Testing speed", "Choosing the best settings")
+    val steps = remember { mutableStateListOf(StepState.Waiting, StepState.Waiting, StepState.Waiting, StepState.Waiting) }
     val samples = remember { mutableStateListOf<Double?>() }
     var checks by remember { mutableStateOf(listOf<Check>()) }
-    var copied by remember { mutableStateOf(false) }
-    var applied by remember { mutableStateOf<String?>(null) }
-    // Clean link speed measured with the OphiStreamer PC app (null = not measured).
     var capacityMbps by remember { mutableStateOf<Int?>(null) }
+    var pcApp by remember { mutableStateOf<com.ophistreamer.home.PcStatus?>(null) }
+    var portsOpen by remember { mutableStateOf(false) }
+    var applied by remember { mutableStateOf<String?>(null) }
+    var showDetails by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+    var fixNote by remember { mutableStateOf<String?>(null) }
+    val checkFocus = remember { androidx.compose.ui.focus.FocusRequester() }
 
-
-    fun findPc() = scope.launch {
-        val hs = hotspot ?: return@launch
-        scanning = true
-        try {
-            foundPcs = NetProbe.findSunshineHosts(hs)
-            foundPcs.firstOrNull()?.let { host = it }
-        } finally {
-            scanning = false
-        }
+    LaunchedEffect(Unit) {
+        runCatching { checkFocus.requestFocus() }
+        // Quick look before the check: find the PC on this phone's hotspot.
+        hotspot?.let { hs -> if (host.isBlank()) host = NetProbe.findSunshineHosts(hs).firstOrNull() ?: "" }
     }
 
-    fun refresh() {
-        wifi = NetProbe.wifiStatus(context)
-        hotspot = NetProbe.phoneHotspot(context)
-        if (hotspot != null) findPc() else wifi.gateway?.let { host = it }
-        controllers = DeviceProbe.controllers()
-    }
-
-    LaunchedEffect(Unit) { if (hotspot != null) findPc() }
-
-    fun runTest() = scope.launch {
+    fun runCheck() = scope.launch {
         running = true
+        done = false
         copied = false
+        applied = null
+        fixNote = null
         checks = emptyList()
         samples.clear()
+        capacityMbps = null
+        pcApp = null
+        portsOpen = false
         progress = 0f
+        for (i in steps.indices) steps[i] = StepState.Waiting
         onKeepScreenOn(true)
         val locks = DeviceProbe.acquireStreamingWifiLocks(context)
         try {
             val results = mutableListOf<Check>()
 
-            phase = "Checking Wi-Fi"
+            // 1. Find the PC
+            steps[0] = StepState.Running
             wifi = NetProbe.wifiStatus(context)
             hotspot = NetProbe.phoneHotspot(context)
             controllers = DeviceProbe.controllers()
             val hs = hotspot
             if (hs != null) {
-                results += Check("Phone hotspot", Level.PASS, "On (${hs.iface}, ${hs.ip}). Check AP band is 5 GHz.")
-                val reachable = host.isNotBlank() &&
-                    withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, host, 47989) } != null
-                if (!reachable) {
-                    phase = "Looking for the PC on the hotspot"
-                    foundPcs = NetProbe.findSunshineHosts(hs)
-                    host = foundPcs.firstOrNull() ?: ""
-                }
-                results += if (host.isNotBlank()) {
-                    Check("PC found", Level.PASS, host)
-                } else {
-                    Check("PC found", Level.FAIL, "No PC with Apollo on the hotspot. Connect the laptop and start Apollo.")
-                }
+                results += Check("Phone hotspot", Level.PASS, "On (${hs.iface}, ${hs.ip})")
+                val reachable = host.isNotBlank() && withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, host, 47989) } != null
+                if (!reachable) host = NetProbe.findSunshineHosts(hs).firstOrNull() ?: ""
             } else {
                 results += wifiChecks(wifi)
+                if (host.isBlank()) host = wifi.gateway ?: ""
             }
             results += controllerCheck(controllers)
+            val net = if (hs != null) null else NetProbe.wifiNetwork(context)
             if (host.isBlank()) {
+                results += Check("PC found", Level.FAIL, "No PC with Apollo found")
+                steps[0] = StepState.Failed
+                for (i in 1..3) steps[i] = StepState.Skipped
                 checks = results
                 return@launch
             }
-            // Over our own hotspot there is no client Network object; the kernel routes the subnet directly.
-            val net = if (hs != null) null else NetProbe.wifiNetwork(context)
-
-            phase = "Checking Apollo on $host"
             val open = withContext(Dispatchers.IO) {
                 NetProbe.SUNSHINE_TCP_PORTS.associateWith { NetProbe.tcpConnectMs(net, host, it) != null }
             }
             results += portCheck(open)
-            val info = withContext(Dispatchers.IO) { NetProbe.sunshineInfo(net, host) }
-            results += if (info != null) {
-                Check("Streaming host found", Level.PASS, info)
-            } else {
-                Check("Streaming host found", Level.WARN, "No answer from http://$host:47989/serverinfo")
-            }
-            checks = results.toList()
-
+            withContext(Dispatchers.IO) { NetProbe.sunshineInfo(net, host) }?.let { results += Check("Streaming host", Level.PASS, it) }
+            pcApp = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.status(host) }
+            results += if (pcApp != null) Check("OphiStreamer on PC", Level.PASS, if (pcApp?.gaming == true) "Gaming mode on" else "Gaming mode off")
+            else Check("OphiStreamer on PC", Level.INFO, "Not running or not installed")
             val port = NetProbe.SUNSHINE_TCP_PORTS.firstOrNull { open[it] == true }
+            portsOpen = port != null
+            steps[0] = if (port != null) StepState.Done else StepState.Failed
+            checks = results.toList()
             if (port == null) {
-                results += Check("Latency", Level.FAIL, "Can't measure: no Apollo port is reachable")
-            } else {
-                phase = "Measuring latency to $host:$port"
-                val totalMs = durationSec * 1000L
-                val start = SystemClock.elapsedRealtime()
-                while (SystemClock.elapsedRealtime() - start < totalMs) {
-                    samples += withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(net, host, port) }
-                    progress = ((SystemClock.elapsedRealtime() - start).toFloat() / totalMs).coerceAtMost(1f)
-                    delay(NetProbe.SAMPLE_INTERVAL_MS)
-                }
-                results += latencyCheck(LatencyStats(samples.toList()))
+                for (i in 1..3) steps[i] = StepState.Skipped
+                return@launch
             }
 
-            // Real calibration: the PC sends at rising speeds (the direction video travels) and
-            // the phone measures what arrives. Needs OphiStreamer running on the PC.
-            if (withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.status(host) } != null) {
-                val steps = mutableListOf<com.ophistreamer.home.SpeedStep>()
-                for (mbps in listOf(5, 10, 15, 20, 30, 40)) {
-                    phase = "Measuring link speed: $mbps Mbps"
-                    val step = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.speedStep(host, mbps) } ?: break
-                    steps += step
-                    if (step.lossPct > 2.0) break
+            // 2. Delay
+            steps[1] = StepState.Running
+            val totalMs = CHECK_SECONDS * 1000L
+            val start = SystemClock.elapsedRealtime()
+            while (SystemClock.elapsedRealtime() - start < totalMs) {
+                samples += withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(net, host, port) }
+                progress = 0.6f * ((SystemClock.elapsedRealtime() - start).toFloat() / totalMs).coerceAtMost(1f)
+                delay(NetProbe.SAMPLE_INTERVAL_MS)
+            }
+            results += latencyCheck(LatencyStats(samples.toList()))
+            steps[1] = StepState.Done
+
+            // 3. Speed (needs OphiStreamer on the PC)
+            if (pcApp != null) {
+                steps[2] = StepState.Running
+                val speed = mutableListOf<com.ophistreamer.home.SpeedStep>()
+                val rates = listOf(5, 10, 15, 20, 30, 40)
+                for ((i, mbps) in rates.withIndex()) {
+                    val s = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.speedStep(host, mbps) } ?: break
+                    speed += s
+                    progress = 0.6f + 0.35f * (i + 1) / rates.size
+                    if (s.lossPct > 2.0) break
                 }
-                val clean = steps.filter { it.clean }.maxOfOrNull { it.mbps }
+                val clean = speed.filter { it.clean }.maxOfOrNull { it.mbps }
                 capacityMbps = clean
-                val detail = steps.joinToString { "${it.mbps}: %.1f%%".format(it.lossPct) }
+                val detail = speed.joinToString { "${it.mbps}: %.1f%%".format(it.lossPct) }
                 results += when {
-                    clean == null -> Check("Link speed", Level.FAIL, "Packets lost even at 5 Mbps ($detail)")
+                    clean == null -> Check("Link speed", Level.FAIL, "Loss even at 5 Mbps ($detail)")
                     clean >= 20 -> Check("Link speed", Level.PASS, "Clean up to $clean Mbps · loss $detail")
                     else -> Check("Link speed", Level.WARN, "Clean only up to $clean Mbps · loss $detail")
                 }
+                steps[2] = if (clean != null) StepState.Done else StepState.Failed
             } else {
-                results += Check("Link speed", Level.INFO, "Run OphiStreamer on the PC for a real speed test")
+                results += Check("Link speed", Level.INFO, "Install OphiStreamer on the PC for a real speed test")
+                steps[2] = StepState.Skipped
             }
+
+            // 4. Apply the best settings for this phone and link
+            steps[3] = StepState.Running
+            val mbps = bitrateFor(advice.bitrateMbps, capacityMbps)
+            Calibration.apply(context, advice, advice.fps, mbps)
+            applied = "${advice.resolution} · ${advice.fps} fps · $mbps Mbps"
+            steps[3] = StepState.Done
+            progress = 1f
             checks = results
         } finally {
             DeviceProbe.release(locks)
             running = false
-            phase = ""
+            done = true
             onKeepScreenOn(false)
         }
     }
 
-    val apMode = hotspot != null
-    val ready = checks.isNotEmpty() && checks.none { it.level == Level.FAIL }
-    val status = when {
-        running -> "Testing" to Accent
-        checks.isEmpty() -> (if (wifi.connected || apMode) "Not tested" else "Offline") to Muted
-        ready -> "Ready to stream" to Good
-        else -> "Needs attention" to Bad
+    val stats = if (samples.isEmpty()) null else LatencyStats(samples.toList())
+    val verdict = if (done && !running) verdictOf(host, portsOpen, stats, capacityMbps) else null
+    val app = pcApp
+    val fixes = if (!done || running) emptyList() else buildList {
+        if (host.isBlank()) {
+            add(Fix("Connect the laptop", "Turn on this phone's hotspot and join it from the laptop, then check again.", "Hotspot settings") { openHotspotSettings(context) })
+        } else if (!portsOpen) {
+            if (app != null) {
+                add(Fix("Restart Apollo", "The laptop is connected but Apollo isn't answering. OphiStreamer on the PC can restart it.", "Restart") {
+                    scope.launch { fixNote = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.repair(host) } ?: "Apollo restarted. Check again in a few seconds." }
+                })
+            } else {
+                add(Fix("Start Apollo on the laptop", "The laptop is connected but Apollo isn't answering."))
+            }
+        }
+        if (hotspot == null && wifi.connected && wifi.band == "2.4 GHz") {
+            add(Fix("Use 5 GHz", "This Wi-Fi is on 2.4 GHz, which is slower and busier."))
+        }
+        val cap = capacityMbps
+        if (hotspot != null && cap != null && cap < 20) {
+            add(Fix("Set the hotspot to 5 GHz", "Speed is low. Personal hotspot > More > AP band > 5 GHz.", "Hotspot settings") { openHotspotSettings(context) })
+        }
+        if (stats != null && stats.spikes > 0) {
+            if (app != null && !app.gaming) {
+                add(Fix("Turn on Gaming mode", "It stops the laptop's Wi-Fi scans that cause hiccups.", "Turn on") {
+                    scope.launch { fixNote = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.setGaming(host, true) } ?: "Gaming mode is on. Check again to compare." }
+                })
+            } else if (app == null) {
+                add(Fix("Install OphiStreamer on the PC", "It removes the laptop's Wi-Fi hiccups and adds the speed test."))
+            }
+        }
+        if (hotspot == null && wifi.connected && wifi.rssiDbm < -67) {
+            add(Fix("Move closer to the laptop", "The Wi-Fi signal is weak (${wifi.rssiDbm} dBm)."))
+        }
+        if (controllers.isEmpty()) {
+            add(Fix("Plug in your controller", "Connect the GameSir and turn on OTG in Settings."))
+        }
     }
 
     Column(
@@ -317,285 +362,220 @@ fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // ---- Top bar
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("OPHISTREAMER", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                Text("Link Check", color = TextMain, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            }
-            Pill(status.first, status.second)
+        Column {
+            Text("OPHISTREAMER", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+            Text("Connection", color = TextMain, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
 
-        // ---- Hero
+        // ---- Hero: before, during, after
         Box(
             Modifier
                 .fillMaxWidth()
                 .border(1.dp, CardBorder, CardShape)
                 .background(Brush.verticalGradient(listOf(HeroTop, CardBg)), CardShape)
-                .padding(16.dp),
+                .padding(18.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column {
-                    Text(
-                        when {
-                            apMode -> "Phone hotspot on"
-                            wifi.connected -> "Connected to ${wifi.ssid ?: "Wi-Fi"}"
-                            else -> "Not connected"
-                        },
-                        color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        when {
-                            apMode && scanning -> "Looking for the PC…"
-                            apMode && host.isBlank() -> "Connect the laptop to this hotspot"
-                            apMode -> "PC at $host"
-                            wifi.connected -> "PC at ${wifi.gateway ?: "?"} · ${wifi.frequencyMhz} MHz"
-                            else -> "Turn on this phone's hotspot, or join the laptop's"
-                        },
-                        color = Muted, fontSize = 13.sp,
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (apMode) {
-                        StatTile("ON", "HOTSPOT", Good)
-                        StatTile(if (host.isBlank()) "-" else "FOUND", "PC", if (host.isBlank()) Muted else Good)
-                        StatTile(
-                            if (samples.isEmpty()) "-" else "%.1f".format(LatencyStats(samples.toList()).avg),
-                            "AVG ms", TextMain,
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when {
+                    running -> {
+                        Text("Checking your connection...", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            stepNames.forEachIndexed { i, name -> StepLine(name, steps[i]) }
+                        }
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            color = Accent,
+                            trackColor = CardBorder,
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
                         )
-                    } else {
-                        StatTile(if (wifi.connected) wifi.band else "-", "BAND", bandLevel(wifi).color)
-                        StatTile(if (wifi.connected) "${wifi.rssiDbm}" else "-", "SIGNAL dBm", signalLevel(wifi.rssiDbm).color)
-                        StatTile(if (wifi.connected) "${wifi.linkMbps}" else "-", "LINK Mbps", linkLevel(wifi.linkMbps).color)
+                    }
+                    verdict != null -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.size(12.dp).background(verdict.color, CircleShape))
+                            Text(verdict.title, color = TextMain, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text(verdict.summary, color = Muted, fontSize = 14.sp)
+                        if (stats != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatTile("%.0f ms".format(stats.avg), "DELAY", if (stats.avg < 15) Good else Warn)
+                                StatTile("${stats.spikes}", "HICCUPS", if (stats.spikes == 0) Good else Warn)
+                                StatTile(capacityMbps?.let { "$it" } ?: "-", "SPEED Mbps", when {
+                                    capacityMbps == null -> Muted
+                                    capacityMbps!! >= 20 -> Good
+                                    else -> Warn
+                                })
+                            }
+                        }
+                    }
+                    else -> {
+                        Text("Check your connection", color = TextMain, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text("About $CHECK_SECONDS seconds. Keep the phone near the laptop.", color = Muted, fontSize = 14.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Pill(
+                                when {
+                                    hotspot != null -> "Hotspot on"
+                                    wifi.connected -> "Wi-Fi ${wifi.band}"
+                                    else -> "No Wi-Fi"
+                                },
+                                if (hotspot != null || wifi.connected) Good else Bad,
+                            )
+                            Pill(if (host.isNotBlank()) "PC found" else "No PC yet", if (host.isNotBlank()) Good else Warn)
+                            Pill(if (controllers.isNotEmpty()) "Controller" else "No controller", if (controllers.isNotEmpty()) Good else Muted)
+                        }
+                    }
+                }
+                com.ophistreamer.ui.OphiPrimaryButton(
+                    text = when {
+                        running -> "Checking..."
+                        done -> "Check again"
+                        else -> "Check now"
+                    },
+                    enabled = !running,
+                    focusRequester = checkFocus,
+                ) { runCheck() }
+            }
+        }
+
+        // ---- Things to fix
+        if (fixes.isNotEmpty()) {
+            SectionHeader("Things to fix")
+            SteamCard {
+                fixes.forEachIndexed { i, fix ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(fix.title, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(fix.detail, color = Muted, fontSize = 12.sp)
+                        }
+                        if (fix.action != null && fix.onAction != null) {
+                            SecondaryButton(fix.action, modifier = Modifier.width(140.dp)) { fix.onAction.invoke() }
+                        }
+                    }
+                    if (i < fixes.lastIndex) HorizontalDivider(color = Divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                }
+            }
+            fixNote?.let { Text(it, color = Accent, fontSize = 12.sp) }
+        }
+
+        // ---- Settings applied automatically
+        applied?.let { now ->
+            SectionHeader("Your stream settings")
+            SteamCard {
+                SettingRow(
+                    "Applied",
+                    now,
+                    Good,
+                    sub = "Used for your next stream. Change them any time in the Quick menu.",
+                    last = advice.higherFps == null,
+                )
+                advice.higherFps?.let { fast ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Your phone can also do $fast fps", color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        SecondaryButton("Use $fast fps", modifier = Modifier.width(140.dp)) {
+                            val mbps = bitrateFor(advice.higherBitrateMbps, capacityMbps)
+                            Calibration.apply(context, advice, fast, mbps)
+                            applied = "${advice.resolution} · $fast fps · $mbps Mbps"
+                        }
                     }
                 }
             }
         }
 
-        // ---- Connection
-        SectionHeader("Connection")
-        SteamCard {
-            val hs = hotspot
-            if (hs != null) {
-                SettingRow("Mode", "Phone is the hotspot", Accent)
-                SettingRow("Phone IP", hs.ip)
-                SettingRow(
-                    "PC address",
-                    when {
-                        scanning -> "Searching…"
-                        host.isBlank() -> "Not found yet"
-                        else -> host
-                    },
-                    if (host.isBlank()) Warn else TextMain,
-                    sub = if (foundPcs.size > 1) "Found: ${foundPcs.joinToString()}" else null,
-                )
-                SettingRow(
-                    "Hotspot band",
-                    "Set to 5 GHz",
-                    Warn,
-                    sub = "Android doesn't let apps read it: Personal hotspot > More > AP band",
-                    last = true,
-                )
-            } else {
-                SettingRow("Network", wifi.ssid ?: if (wifi.connected) "Name hidden" else "-")
-                SettingRow("Phone IP", wifi.phoneIp ?: "-")
-                SettingRow("PC address", wifi.gateway ?: "-")
-                SettingRow(
-                    "Internet on hotspot",
-                    if (wifi.hasInternet) "Yes" else "No",
-                    if (wifi.hasInternet) Good else Warn,
-                    sub = if (wifi.connected && !wifi.hasInternet) "Android's low-latency Wi-Fi mode needs it" else null,
-                    last = true,
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryButton("Refresh", enabled = !running && !scanning, modifier = Modifier.weight(1f)) { refresh() }
-            SecondaryButton("Hotspot settings", modifier = Modifier.weight(1f)) { openHotspotSettings(context) }
-        }
-
-
-        // ---- Controller
-        SectionHeader("Controller")
-        SteamCard {
-            if (controllers.isEmpty()) {
-                SettingRow("No controller found", "", sub = "Plug in the GameSir, turn on OTG, then tap Refresh")
-            } else {
-                for (c in controllers) {
-                    SettingRow(
-                        c.name,
-                        if (c.external) "Connected" else "Built-in",
-                        Good,
-                        sub = "ID %04x:%04x · rumble %s".format(c.vendorId, c.productId, if (c.vibrates) "yes" else "no"),
-                    )
-                }
-            }
-            SettingRow(
-                "Live input",
-                GamepadInput.lastButton.ifBlank { "Press a button" },
-                if (GamepadInput.events > 0) Accent else Muted,
-                sub = "L %+.2f %+.2f   R %+.2f %+.2f".format(
-                    GamepadInput.leftX, GamepadInput.leftY, GamepadInput.rightX, GamepadInput.rightY,
-                ),
-                last = true,
-            )
-        }
-
-        // ---- Phone
-        SectionHeader("This phone")
-        SteamCard {
-            SettingRow("Screen", "${screen.widthPx}×${screen.heightPx} · ${screen.maxRefreshHz} Hz")
-            decoders.forEachIndexed { i, d ->
-                SettingRow(
-                    d.label,
-                    if (d.codecName == null) "Not supported"
-                    else "720p ${fpsText(d.maxFps720)} · 1080p ${fpsText(d.maxFps1080)}",
-                    when {
-                        d.codecName == null -> Muted
-                        d.hardware -> Good
-                        else -> Warn
-                    },
-                    sub = d.codecName?.let { if (d.hardware) "Hardware decoder" else "Software only, avoid" },
-                    last = i == decoders.lastIndex,
-                )
-            }
-        }
-
-        // ---- Stream settings (calibration)
-        SectionHeader("Stream settings for this phone")
-        SteamCard {
-            SettingRow("Resolution", advice.resolution, sub = "Apollo virtual display at this size")
-            SettingRow("Frame rate", "${advice.fps} fps")
-            SettingRow("Video codec", advice.codec)
-            SettingRow(
-                "Bitrate",
-                "${bitrateFor(advice.bitrateMbps, capacityMbps)} Mbps",
-                sub = capacityMbps?.let { "70% of the measured $it Mbps" },
-            )
-            SettingRow("Frame pacing", "Prefer lowest latency")
-            SettingRow("Performance overlay", "On")
-            SettingRow(
-                "Next step",
-                "",
-                sub = advice.tryLater ?: "Raise bitrate in small steps while the overlay shows no drops",
-                last = true,
-            )
-        }
-        PrimaryButton(text = "Apply ${advice.fps} fps settings", enabled = true) {
-            val mbps = bitrateFor(advice.bitrateMbps, capacityMbps)
-            Calibration.apply(context, advice, advice.fps, mbps)
-            applied = "${advice.fps} fps, $mbps Mbps"
-        }
-        advice.higherFps?.let { fast ->
-            SecondaryButton("Apply ${fast} fps (${advice.higherBitrateMbps} Mbps)") {
-                val mbps = bitrateFor(advice.higherBitrateMbps, capacityMbps)
-                Calibration.apply(context, advice, fast, mbps)
-                applied = "$fast fps, $mbps Mbps"
-            }
-        }
-        applied?.let {
-            val profile = Calibration.activeProfileName()
-            Text(
-                if (profile.isEmpty()) "Applied: ${advice.resolution}, $it, ${advice.codec}. Used on your next stream."
-                else "Applied: ${advice.resolution}, $it. Note: profile \"$profile\" is active and overrides these while streaming.",
-                color = if (profile.isEmpty()) Good else Warn,
-                fontSize = 12.sp,
-            )
-        }
-
-        // ---- Test controls
-        SectionHeader("Link test")
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it.trim() },
-            label = { Text("PC address") },
-            singleLine = true,
-            enabled = !running,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            shape = CardShape,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Accent,
-                unfocusedBorderColor = CardBorder,
-                focusedLabelColor = Accent,
-                unfocusedLabelColor = Muted,
-                focusedTextColor = TextMain,
-                unfocusedTextColor = TextMain,
-                cursorColor = Accent,
-                focusedContainerColor = CardBg,
-                unfocusedContainerColor = CardBg,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Segmented(
-            options = listOf(30, 60, 120),
-            selected = durationSec,
-            label = { "${it}s" },
-            enabled = !running,
-        ) { durationSec = it }
-
-        PrimaryButton(
-            text = if (running) "Testing…" else "Run link test",
-            enabled = !running && !scanning && (host.isNotBlank() || apMode),
-        ) { runTest() }
-
-        if (running) {
-            LinearProgressIndicator(
-                progress = { progress },
-                color = Accent,
-                trackColor = CardBorder,
-                modifier = Modifier.fillMaxWidth().height(4.dp),
-            )
-            Text(phase, color = Muted, fontSize = 12.sp)
-        }
-
-        // ---- Latency
-        if (samples.isNotEmpty()) {
-            val stats = LatencyStats(samples.toList())
-            SectionHeader("Latency to PC")
-            SteamCard {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LatencyChart(
-                        samples = samples,
-                        expected = (durationSec * 1000 / NetProbe.SAMPLE_INTERVAL_MS).toInt(),
-                        modifier = Modifier.fillMaxWidth().height(110.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatTile("%.1f".format(stats.avg), "AVG ms", TextMain)
-                        StatTile("%.1f".format(stats.p99), "P99 ms", TextMain)
-                        StatTile("${stats.spikes}", "SPIKES", if (stats.spikes == 0) Good else Warn)
-                        StatTile("${stats.lost}", "LOST", if (stats.lost == 0) Good else Bad)
-                    }
-                }
-            }
-        }
-
-        // ---- Results
-        if (checks.isNotEmpty()) {
-            SectionHeader("Results")
-            SteamCard {
-                checks.forEachIndexed { i, c ->
-                    ResultRow(c, last = i == checks.lastIndex)
-                }
-            }
-            if (!running) {
-                SecondaryButton(if (copied) "Copied - paste it to Claude" else "Copy report") {
-                    val stats = if (samples.isEmpty()) null else LatencyStats(samples.toList())
-                    clipboard.setText(
-                        AnnotatedString(
-                            buildReport(context, wifi, hotspot, host, checks, stats, screen, decoders, advice, controllers),
-                        ),
-                    )
-                    copied = true
-                }
-            }
-        }
-
+        // ---- Details for the curious
         Text(
-            "Holds the same Wi-Fi locks as Artemis/Moonlight during the test.",
-            color = Muted.copy(alpha = 0.6f), fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            textAlign = TextAlign.Center,
+            if (showDetails) "Hide details" else "Show details",
+            color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .focusRing(CardShape)
+                .clickable { showDetails = !showDetails }
+                .padding(vertical = 8.dp, horizontal = 4.dp),
         )
+        if (showDetails) {
+            if (samples.isNotEmpty() && stats != null) {
+                SteamCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Delay over $CHECK_SECONDS seconds", color = TextMain, fontSize = 14.sp)
+                        LatencyChart(samples, (CHECK_SECONDS * 1000 / NetProbe.SAMPLE_INTERVAL_MS).toInt(), Modifier.fillMaxWidth().height(100.dp))
+                        Text(
+                            "avg %.1f ms · p99 %.1f ms · max %.1f ms · lost %d/%d".format(stats.avg, stats.p99, stats.max, stats.lost, stats.sent),
+                            color = Muted, fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+            if (checks.isNotEmpty()) {
+                SectionHeader("All checks")
+                SteamCard { checks.forEachIndexed { i, c -> ResultRow(c, last = i == checks.lastIndex) } }
+            }
+            SectionHeader("This phone")
+            SteamCard {
+                SettingRow("PC address", host.ifBlank { "Not found" })
+                SettingRow("Screen", "${screen.widthPx}×${screen.heightPx} · ${screen.maxRefreshHz} Hz")
+                decoders.forEach { d ->
+                    SettingRow(
+                        d.label,
+                        if (d.codecName == null) "Not supported" else "720p ${fpsText(d.maxFps720)} · 1080p ${fpsText(d.maxFps1080)}",
+                        if (d.codecName == null) Muted else if (d.hardware) Good else Warn,
+                    )
+                }
+                SettingRow(
+                    "Controller",
+                    controllers.firstOrNull()?.name ?: "None",
+                    if (controllers.isNotEmpty()) Good else Muted,
+                    sub = "Last input: " + GamepadInput.lastButton.ifBlank { "press a button" },
+                    last = true,
+                )
+            }
+            SecondaryButton(if (copied) "Copied" else "Copy report") {
+                clipboard.setText(
+                    AnnotatedString(buildReport(context, wifi, hotspot, host, checks, stats, screen, decoders, advice, controllers)),
+                )
+                copied = true
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepLine(name: String, state: StepState) {
+    val (glyph, color) = when (state) {
+        StepState.Waiting -> "○" to Muted
+        StepState.Running -> "●" to Accent
+        StepState.Done -> "✓" to Good
+        StepState.Failed -> "✕" to Bad
+        StepState.Skipped -> "–" to Muted
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(glyph, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
+        Text(
+            name,
+            color = if (state == StepState.Waiting || state == StepState.Skipped) Muted else TextMain,
+            fontSize = 14.sp,
+        )
+    }
+}
+
+private fun verdictOf(host: String, portsOpen: Boolean, stats: LatencyStats?, cap: Int?): Verdict = when {
+    host.isBlank() -> Verdict("Can't find your PC", "Connect the laptop to this phone's hotspot and make sure Apollo is running.", Bad)
+    !portsOpen -> Verdict("Your PC isn't answering", "The laptop is connected, but Apollo isn't responding.", Bad)
+    stats == null -> Verdict("Check didn't finish", "Try again.", Warn)
+    else -> {
+        val lossPct = if (stats.sent == 0) 100.0 else stats.lost * 100.0 / stats.sent
+        val speed = cap?.let { " Speed up to $it Mbps." } ?: ""
+        val facts = "Delay %.0f ms, %d hiccup%s in %d seconds.".format(stats.avg, stats.spikes, if (stats.spikes == 1) "" else "s", CHECK_SECONDS) + speed
+        when {
+            stats.spikes == 0 && stats.lost == 0 && stats.p99 < 20 && (cap == null || cap >= 20) ->
+                Verdict("Excellent", "Ready for smooth streaming. $facts", Good)
+            stats.spikes <= 2 && lossPct <= 1.0 && (cap == null || cap >= 10) ->
+                Verdict("Good", "Playable, with the occasional hitch. $facts", Good)
+            else -> Verdict("Needs attention", "You'll likely notice stutter. $facts", Warn)
+        }
     }
 }
 

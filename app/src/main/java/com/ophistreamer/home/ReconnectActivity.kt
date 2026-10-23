@@ -152,7 +152,7 @@ class ReconnectActivity : ComponentActivity() {
                         }
                         OphiSecondaryButton("Cancel", Modifier.weight(1f), height = 52.dp) { onCancel() }
                     }
-                    if (failed) Text("Tip: open Link Check from the home screen (Y) to see what's wrong.", color = OphiWarn, fontSize = 11.sp)
+                    if (failed) Text("Tip: open Connection from the home screen (Y) to see what's wrong.", color = OphiWarn, fontSize = 11.sp)
                 }
             }
         }

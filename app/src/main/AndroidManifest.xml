@@ -61,7 +61,7 @@
         <!-- OphiStreamer: link check + calibration (Kotlin/Compose) -->
         <activity
             android:name="com.ophistreamer.linkcheck.LinkCheckActivity"
-            android:label="Link Check"
+            android:label="Connection"
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar" />
 

@@ -127,8 +127,8 @@
         android:layout_marginBottom="24dp"
         android:layout_marginStart="24dp"
         android:layout_marginLeft="24dp"
-        android:text="Link Check"
-        android:contentDescription="Link Check" />
+        android:text="Connection"
+        android:contentDescription="Connection" />
 
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
         android:id="@+id/profilesButton"
