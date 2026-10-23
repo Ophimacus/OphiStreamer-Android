@@ -178,6 +178,12 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
                 HelpLauncher.launchSetupGuide(PcView.this);
             }
         });
+        findViewById(R.id.linkCheckButton).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(PcView.this, com.ophistreamer.linkcheck.LinkCheckActivity.class));
+            }
+        });
         profilesButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
