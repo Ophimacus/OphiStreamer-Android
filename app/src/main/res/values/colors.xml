@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="profileAccent">#FF4081</color>
+
+    <!-- OphiStreamer SteamOS-inspired palette -->
+    <color name="ophi_bg_top">#1B2838</color>
+    <color name="ophi_bg_bottom">#0B0F14</color>
+    <color name="ophi_card">#151C25</color>
+    <color name="ophi_card_raised">#1F2833</color>
+    <color name="ophi_border">#26313E</color>
+    <color name="ophi_text">#DCDEDF</color>
+    <color name="ophi_muted">#8B98A5</color>
+    <color name="ophi_accent">#1A9FFF</color>
+    <color name="ophi_accent_deep">#0B6FD1</color>
+    <color name="ophi_good">#59BF40</color>
+    <color name="ophi_warn">#E6B450</color>
+    <color name="ophi_bad">#E5534B</color>
 </resources>

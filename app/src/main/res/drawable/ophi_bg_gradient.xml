@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OphiStreamer window background: navy fading to near-black. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="@color/ophi_bg_top"
+        android:endColor="@color/ophi_bg_bottom" />
+</shape>

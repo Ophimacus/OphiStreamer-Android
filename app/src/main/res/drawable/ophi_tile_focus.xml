@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grid selector: the SteamOS-style blue ring around the focused/pressed tile (drawn on top). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:exitFadeDuration="120">
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="#331A9FFF" />
+            <stroke android:width="3dp" android:color="@color/ophi_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="#141A9FFF" />
+            <stroke android:width="3dp" android:color="@color/ophi_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_selected="true">
+        <shape>
+            <solid android:color="#141A9FFF" />
+            <stroke android:width="3dp" android:color="@color/ophi_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

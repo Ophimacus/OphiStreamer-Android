@@ -19,10 +19,34 @@
         <!-- All customizations that are NOT specific to a particular API-level can go here. -->
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:statusBarColor">#1A1A1A</item>
-        <item name="android:navigationBarColor">#1A1A1A</item>
-        <item name="android:colorBackground">#1A1A1A</item>
-        <item name="android:windowBackground">#1A1A1A</item>
+        <item name="android:statusBarColor">@color/ophi_bg_top</item>
+        <item name="android:navigationBarColor">@color/ophi_bg_bottom</item>
+        <item name="android:colorBackground">@color/ophi_bg_bottom</item>
+        <item name="android:windowBackground">@drawable/ophi_bg_gradient</item>
+        <!-- OphiStreamer SteamOS-inspired colors -->
+        <item name="colorPrimary">@color/ophi_accent</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">@color/ophi_accent_deep</item>
+        <item name="colorOnPrimaryContainer">@android:color/white</item>
+        <item name="colorSecondary">@color/ophi_accent</item>
+        <item name="colorOnSecondary">@android:color/white</item>
+        <item name="colorSecondaryContainer">@color/ophi_card_raised</item>
+        <item name="colorOnSecondaryContainer">@color/ophi_text</item>
+        <item name="colorSurface">@color/ophi_card</item>
+        <item name="colorOnSurface">@color/ophi_text</item>
+        <item name="colorSurfaceVariant">@color/ophi_card_raised</item>
+        <item name="colorOnSurfaceVariant">@color/ophi_muted</item>
+        <item name="colorOutline">@color/ophi_border</item>
+        <item name="colorSurfaceContainerLowest">@color/ophi_bg_bottom</item>
+        <item name="colorSurfaceContainerLow">@color/ophi_card</item>
+        <item name="colorSurfaceContainer">@color/ophi_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ophi_card_raised</item>
+        <item name="colorSurfaceContainerHighest">@color/ophi_card_raised</item>
+        <item name="colorOutlineVariant">@color/ophi_border</item>
+        <item name="colorAccent">@color/ophi_accent</item>
+        <item name="android:colorAccent">@color/ophi_accent</item>
+        <item name="android:textColorPrimary">@color/ophi_text</item>
+        <item name="android:textColorSecondary">@color/ophi_muted</item>
     </style>
 
     <style name="StreamBaseTheme" parent="AppBaseTheme">

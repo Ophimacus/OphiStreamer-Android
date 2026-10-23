@@ -10,4 +10,8 @@
     android:focusableInTouchMode="true"
     android:nextFocusLeft="@id/settingsButton"
     android:clipToPadding="false"
+    android:listSelector="@drawable/ophi_tile_focus"
+    android:drawSelectorOnTop="true"
+    android:horizontalSpacing="12dp"
+    android:verticalSpacing="12dp"
     android:gravity="center"/>
