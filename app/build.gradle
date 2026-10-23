@@ -40,7 +40,7 @@ android {
                     "obtainium_app_url",
                     "data:text/html;base64,PGgxPlJvb3QgYnVpbGQgaXMgbm90IGF2YWlsYWJsZTwvaDE+"
 
-            applicationId "com.limelight.root"
+            applicationId "com.ophistreamer.app.root"
             dimension "root"
             buildConfigField "boolean", "ROOT_BUILD", "true"
         }
@@ -54,9 +54,9 @@ android {
 
             resValue "string",
                     "obtainium_app_url",
-                    "https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.limelight.noir%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FClassicOldSong%2Fmoonlight-android%22%2C%22author%22%3A%22ClassicOldSong%22%2C%22name%22%3A%22Artemis%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22nonRoot%5C%22%2C%5C%22matchGroutToUse%5C%22%3A%5C%22%241%5C%22%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22v(.%2B)%5C%22%7D%22%7D"
+                    "https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.ophistreamer.app%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FOphimacus%2FOphiStreamer-Android%22%2C%22author%22%3A%22Ophimacus%22%2C%22name%22%3A%22OphiStreamer%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22nonRoot%5C%22%2C%5C%22matchGroutToUse%5C%22%3A%5C%22%241%5C%22%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22v(.%2B)%5C%22%7D%22%7D"
 
-            applicationId "com.limelight"
+            applicationId "com.ophistreamer.app"
             dimension "root"
             buildConfigField "boolean", "ROOT_BUILD", "false"
         }
@@ -93,12 +93,26 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            // CI supplies the OphiStreamer release key through environment variables
+            // (see .github/workflows/build.yml); local builds stay unsigned.
+            def ks = System.getenv("OPHI_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("OPHI_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("OPHI_KEY_ALIAS")
+                keyPassword System.getenv("OPHI_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
-            applicationIdSuffix ".noirdebug"
-            resValue "string", "app_label", "Diana"
-            resValue "string", "app_label_root", "Diana (Root)"
-            resValue "string", "app_label_game", "Diana (Game)"
+            applicationIdSuffix ".debug"
+            resValue "string", "app_label", "OphiStreamer Dev"
+            resValue "string", "app_label_root", "OphiStreamer Dev (Root)"
+            resValue "string", "app_label_game", "OphiStreamer Dev (Game)"
 
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -134,13 +148,16 @@ android {
             // is to please change the applicationId before you publish.
             //
             // TL;DR: Leave the following line alone!
-            applicationIdSuffix ".noir"
-            resValue "string", "app_label", "Artemis"
-            resValue "string", "app_label_root", "Artemis (Root)"
-            resValue "string", "app_label_game", "Artemis (Game)"
+            // OphiStreamer uses its own base applicationId (com.ophistreamer.app), so no suffix is needed.
+            resValue "string", "app_label", "OphiStreamer"
+            resValue "string", "app_label_root", "OphiStreamer (Root)"
+            resValue "string", "app_label_game", "OphiStreamer (Game)"
 
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv("OPHI_KEYSTORE")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

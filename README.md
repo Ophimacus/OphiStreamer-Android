@@ -1,3 +1,16 @@
+# OphiStreamer for Android
+
+The phone side of [OphiStreamer](https://github.com/Ophimacus/OphiStreamer): one app to connect to the PC, check the link, calibrate and stream, without opening a separate client.
+
+This is a fork of **[Artemis](https://github.com/ClassicOldSong/moonlight-android)** by ClassicOldSong, which is itself based on **[Moonlight for Android](https://github.com/moonlight-stream/moonlight-android)**. Like both, it is free software under the **GNU GPL v3** (see `LICENSE.txt`); the full source of every build is in this repository.
+
+Latest APK (arm64, for most phones): https://github.com/Ophimacus/OphiStreamer-Android/releases/download/latest/OphiStreamer-arm64.apk
+
+It installs next to Artemis/Moonlight (application ID `com.ophistreamer.app`).
+
+---
+
+*Original Artemis README follows.*
 # Artemis Android
 
 Previously named Moonlight Noir

@@ -1,0 +1,70 @@
+name: Build OphiStreamer APK
+
+on:
+  push:
+    branches: [moonlight-noir]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.0.12077973" > /dev/null
+
+      # The release key lives in repository secrets so every build is signed the same way
+      # and installs over the previous one.
+      - name: Decode signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.OPHI_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ophi.jks"
+            echo "OPHI_KEYSTORE=$RUNNER_TEMP/ophi.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release APK
+        env:
+          OPHI_KEYSTORE_PASSWORD: ${{ secrets.OPHI_KEYSTORE_PASSWORD }}
+          OPHI_KEY_ALIAS: ${{ secrets.OPHI_KEY_ALIAS }}
+          OPHI_KEY_PASSWORD: ${{ secrets.OPHI_KEY_PASSWORD }}
+        run: ./gradlew assembleNonRoot_gameRelease --no-daemon
+
+      - name: Collect APK
+        run: |
+          ls -la app/build/outputs/apk/nonRoot_game/release/
+          mkdir -p out
+          cp app/build/outputs/apk/nonRoot_game/release/*arm64-v8a*.apk out/OphiStreamer-arm64.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OphiStreamer-arm64
+          path: out/OphiStreamer-arm64.apk
+
+      # Fixed download link for the phone:
+      # https://github.com/Ophimacus/OphiStreamer-Android/releases/download/latest/OphiStreamer-arm64.apk
+      - name: Publish to "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest out/OphiStreamer-arm64.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "OphiStreamer for Android (latest build)" \
+            --notes "Built from $GITHUB_SHA. Based on Artemis and Moonlight (GPL-3.0)."
