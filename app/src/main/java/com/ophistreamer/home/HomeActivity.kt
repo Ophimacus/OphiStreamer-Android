@@ -93,6 +93,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -175,13 +176,39 @@ private fun HomeScreen(
     val pcRecents = recents.filter { pc != null && it.pcUuid.equals(pc.uuid, ignoreCase = true) }
     var latency by remember { mutableStateOf<Double?>(null) }
     var probed by remember { mutableStateOf(false) }
+    var pcApp by remember { mutableStateOf<PcStatus?>(null) }
+    var repairMsg by remember { mutableStateOf<String?>(null) }
+    var repairing by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Repair through the OphiStreamer PC app: restarts Apollo, then checks again.
+    val onRepair: () -> Unit = {
+        val addr = pc?.address
+        if (addr != null && !repairing) {
+            repairing = true
+            repairMsg = "Repairing: restarting Apollo..."
+            scope.launch {
+                val err = withContext(Dispatchers.IO) { PhoneLinkClient.repair(addr) }
+                if (err == null) {
+                    repairMsg = "Apollo restarted. Checking again..."
+                    kotlinx.coroutines.delay(6000)
+                    latency = withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, addr, 47989) }
+                    repairMsg = if (latency != null) "Repaired. Press Play." else "Apollo restarted but isn't answering yet."
+                } else {
+                    repairMsg = err
+                }
+                repairing = false
+            }
+        }
+    }
 
     // Check the PC quietly; while it doesn't answer, keep checking every few seconds.
     LaunchedEffect(pc?.address, refreshKey) {
         probed = false
         while (true) {
             latency = pc?.address?.let { addr -> withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, addr, 47989) } }
+            pcApp = pc?.address?.let { addr -> withContext(Dispatchers.IO) { PhoneLinkClient.status(addr) } }
             probed = true
             if (latency != null || pc?.address == null) break
             kotlinx.coroutines.delay(4000)
@@ -196,14 +223,14 @@ private fun HomeScreen(
                 val wide = maxWidth > 600.dp
                 if (wide) {
                     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, playFocus, onPlay, Modifier.weight(1.3f).fillMaxHeight())
+                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, pcApp, repairMsg, repairing, onRepair, playFocus, onPlay, Modifier.weight(1.3f).fillMaxHeight())
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Shelf(pc, pcRecents, onPlay)
                         }
                     }
                 } else {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, playFocus, onPlay, Modifier.fillMaxWidth().height(280.dp))
+                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, pcApp, repairMsg, repairing, onRepair, playFocus, onPlay, Modifier.fillMaxWidth().height(280.dp))
                         Shelf(pc, pcRecents, onPlay)
                     }
                 }
@@ -261,6 +288,10 @@ private fun Hero(
     latency: Double?,
     probed: Boolean,
     startStatus: StartStatus?,
+    pcApp: PcStatus?,
+    repairMsg: String?,
+    repairing: Boolean,
+    onRepair: () -> Unit,
     playFocus: FocusRequester,
     onPlay: (String, RecentGame?) -> Unit,
     modifier: Modifier,
@@ -307,6 +338,14 @@ private fun Hero(
                 color = OphiMuted, fontSize = 13.sp,
             )
         }
+        if (pcApp != null && pcApp.gaming) {
+            Spacer(Modifier.height(4.dp))
+            Text("Gaming mode on the PC", color = OphiAccent, fontSize = 12.sp)
+        }
+        if (repairMsg != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(repairMsg, color = if (repairing) OphiAccent else OphiMuted, fontSize = 13.sp)
+        }
         if (connecting) {
             Spacer(Modifier.height(10.dp))
             androidx.compose.material3.LinearProgressIndicator(color = OphiAccent, trackColor = OphiBorder, modifier = Modifier.fillMaxWidth())
@@ -328,7 +367,11 @@ private fun Hero(
             ) { onPlay(pc.uuid, lastGame) }
         }
         Spacer(Modifier.height(8.dp))
-        OphiSecondaryButton("All games", enabled = !connecting) { onPlay(pc.uuid, null) }
+        val showRepair = pcApp != null && (startStatus is StartStatus.Failed || (probed && latency == null))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphiSecondaryButton("All games", Modifier.weight(1f), enabled = !connecting) { onPlay(pc.uuid, null) }
+            if (showRepair) OphiSecondaryButton(if (repairing) "Repairing..." else "Repair", Modifier.weight(1f), enabled = !repairing) { onRepair() }
+        }
     }
 }
 @Composable

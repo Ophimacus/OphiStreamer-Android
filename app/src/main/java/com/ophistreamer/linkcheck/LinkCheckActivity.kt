@@ -177,6 +177,8 @@ fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
     var checks by remember { mutableStateOf(listOf<Check>()) }
     var copied by remember { mutableStateOf(false) }
     var applied by remember { mutableStateOf<String?>(null) }
+    // Clean link speed measured with the OphiStreamer PC app (null = not measured).
+    var capacityMbps by remember { mutableStateOf<Int?>(null) }
 
 
     fun findPc() = scope.launch {
@@ -266,6 +268,28 @@ fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
                     delay(NetProbe.SAMPLE_INTERVAL_MS)
                 }
                 results += latencyCheck(LatencyStats(samples.toList()))
+            }
+
+            // Real calibration: the PC sends at rising speeds (the direction video travels) and
+            // the phone measures what arrives. Needs OphiStreamer running on the PC.
+            if (withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.status(host) } != null) {
+                val steps = mutableListOf<com.ophistreamer.home.SpeedStep>()
+                for (mbps in listOf(5, 10, 15, 20, 30, 40)) {
+                    phase = "Measuring link speed: $mbps Mbps"
+                    val step = withContext(Dispatchers.IO) { com.ophistreamer.home.PhoneLinkClient.speedStep(host, mbps) } ?: break
+                    steps += step
+                    if (step.lossPct > 2.0) break
+                }
+                val clean = steps.filter { it.clean }.maxOfOrNull { it.mbps }
+                capacityMbps = clean
+                val detail = steps.joinToString { "${it.mbps}: %.1f%%".format(it.lossPct) }
+                results += when {
+                    clean == null -> Check("Link speed", Level.FAIL, "Packets lost even at 5 Mbps ($detail)")
+                    clean >= 20 -> Check("Link speed", Level.PASS, "Clean up to $clean Mbps · loss $detail")
+                    else -> Check("Link speed", Level.WARN, "Clean only up to $clean Mbps · loss $detail")
+                }
+            } else {
+                results += Check("Link speed", Level.INFO, "Run OphiStreamer on the PC for a real speed test")
             }
             checks = results
         } finally {
@@ -443,7 +467,11 @@ fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
             SettingRow("Resolution", advice.resolution, sub = "Apollo virtual display at this size")
             SettingRow("Frame rate", "${advice.fps} fps")
             SettingRow("Video codec", advice.codec)
-            SettingRow("Bitrate", "${advice.bitrateMbps} Mbps")
+            SettingRow(
+                "Bitrate",
+                "${bitrateFor(advice.bitrateMbps, capacityMbps)} Mbps",
+                sub = capacityMbps?.let { "70% of the measured $it Mbps" },
+            )
             SettingRow("Frame pacing", "Prefer lowest latency")
             SettingRow("Performance overlay", "On")
             SettingRow(
@@ -454,13 +482,15 @@ fun TesterScreen(onKeepScreenOn: (Boolean) -> Unit) {
             )
         }
         PrimaryButton(text = "Apply ${advice.fps} fps settings", enabled = true) {
-            Calibration.apply(context, advice, advice.fps, advice.bitrateMbps)
-            applied = "${advice.fps} fps, ${advice.bitrateMbps} Mbps"
+            val mbps = bitrateFor(advice.bitrateMbps, capacityMbps)
+            Calibration.apply(context, advice, advice.fps, mbps)
+            applied = "${advice.fps} fps, $mbps Mbps"
         }
         advice.higherFps?.let { fast ->
             SecondaryButton("Apply ${fast} fps (${advice.higherBitrateMbps} Mbps)") {
-                Calibration.apply(context, advice, fast, advice.higherBitrateMbps)
-                applied = "$fast fps, ${advice.higherBitrateMbps} Mbps"
+                val mbps = bitrateFor(advice.higherBitrateMbps, capacityMbps)
+                Calibration.apply(context, advice, fast, mbps)
+                applied = "$fast fps, $mbps Mbps"
             }
         }
         applied?.let {
@@ -779,6 +809,10 @@ private fun openHotspotSettings(context: Context) {
         }
     }
 }
+
+/** Keeps 30% headroom below the measured clean link speed, and never exceeds the phone's own advice. */
+private fun bitrateFor(advised: Int, capacityMbps: Int?): Int =
+    if (capacityMbps == null) advised else minOf(advised, maxOf(3, (capacityMbps * 0.7).toInt()))
 
 private fun fpsText(fps: Int) = if (fps == 0) "no" else "$fps fps"
 

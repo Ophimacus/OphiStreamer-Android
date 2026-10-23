@@ -508,6 +508,12 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
                             pinStr = PairingManager.generatePinString();
                         }
 
+                        // OphiStreamer: the PC app types this PIN into Apollo for us (no PIN entry needed).
+                        if (passphrase == null) {
+                            com.ophistreamer.home.PhoneLinkClient.submitPinAsync(
+                                    ServerHelper.getCurrentAddressFromComputer(computer).address, pinStr);
+                        }
+
                         // Spin the dialog off in a thread because it blocks
                         if (passphrase == null) {
                             Dialog.displayDialog(PcView.this, getResources().getString(R.string.pair_pairing_title),
