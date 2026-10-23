@@ -21,6 +21,7 @@ object Calibration {
             .putBoolean("checkbox_use_virtual_display", true)
             .putBoolean("checkbox_enable_perf_overlay", true)
             .apply()
+        com.ophistreamer.home.Recents.markCalibrated(context)
     }
 
     /** Name of the active settings profile, which overrides these values while streaming; empty if none. */

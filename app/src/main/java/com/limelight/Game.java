@@ -1701,6 +1701,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        com.ophistreamer.home.HeatGuard.detach(this);
 
         instance = null;
         timerHandler.removeCallbacksAndMessages(null);
@@ -3581,8 +3582,16 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
+                    boolean ophiWasStreaming = connected;
                     LimeLog.severe("Connection terminated: " + errorCode);
                     stopConnection();
+
+                    // OphiStreamer: a running stream that drops goes to "Reconnecting..." and resumes.
+                    if (errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION && ophiWasStreaming
+                            && com.ophistreamer.home.AutoResume.tryResume(Game.this, getIntent())) {
+                        finish();
+                        return;
+                    }
 
                     // Display the error dialog if it was an unexpected termination.
                     // Otherwise, just finish the activity immediately.
@@ -3684,6 +3693,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 }
 
                 connected = true;
+
+                // OphiStreamer: warn if the phone overheats during the stream.
+
+                com.ophistreamer.home.HeatGuard.attach(Game.this);
                 connecting = false;
                 updatePipAutoEnter();
 

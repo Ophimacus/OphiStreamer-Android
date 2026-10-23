@@ -115,6 +115,10 @@ public class ServerHelper {
         gameIntent.putExtra(Game.EXTRA_VDISPLAY, withVDisplay);
         gameIntent.putExtra(Game.EXTRA_SERVER_COMMANDS, (ArrayList<String>) computer.serverCommands);
 
+        // OphiStreamer: remember this game for the home screen's PLAY button and recent shelf.
+        com.ophistreamer.home.Recents.record(parent, computer.uuid, computer.name,
+                app.getAppName(), app.getAppId(), app.getAppUUID());
+
         try {
             if (computer.serverCert != null) {
                 gameIntent.putExtra(Game.EXTRA_SERVER_CERT, computer.serverCert.getEncoded());

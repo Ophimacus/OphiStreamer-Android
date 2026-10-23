@@ -66,7 +66,9 @@
             android:layout_gravity="left"
             android:textAppearance="?android:attr/textAppearanceSmall"
             android:gravity="left"
-            android:background="#80000000"
+            android:background="@drawable/ophi_hud_bg"
+            android:padding="8dp"
+            android:textColor="@color/ophi_text"
             android:preferKeepClear="true"
             android:visibility="gone" />
 
@@ -75,7 +77,8 @@
             tools:text="延迟/解码：109ms/7ms 丢包率：69% FPS：60"
             android:textSize="10sp"
             android:layout_marginTop="4dp"
-            android:background="@drawable/ic_hud_bg"
+            android:background="@drawable/ophi_hud_bg"
+            android:textColor="@color/ophi_text"
             android:paddingLeft="5dp"
             android:paddingRight="5dp"
             android:paddingTop="2dp"
