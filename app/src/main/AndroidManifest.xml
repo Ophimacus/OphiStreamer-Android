@@ -122,6 +122,24 @@
             </intent-filter>
         </activity>
         <activity
+            android:name="com.ophistreamer.home.OnboardingActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation" />
+        <activity
+            android:name="com.ophistreamer.home.ControllerAttachActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/ophi_controller_filter" />
+        </activity>
+        <activity
             android:name="com.ophistreamer.home.ReconnectActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar"

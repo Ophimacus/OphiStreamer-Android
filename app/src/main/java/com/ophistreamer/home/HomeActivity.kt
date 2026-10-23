@@ -15,6 +15,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -128,7 +131,23 @@ class HomeActivity : ComponentActivity() {
         }
         if (intent.getBooleanExtra(EXTRA_AUTOPLAY, false)) {
             Recents.all(this).firstOrNull()?.let { play(it.pcUuid, it) }
+        } else if (!OnboardingActivity.isDone(this)) {
+            startActivity(Intent(this, OnboardingActivity::class.java))
         }
+        registerReceiver(screenOnReceiver, android.content.IntentFilter(Intent.ACTION_SCREEN_ON))
+    }
+
+    // The button press that wakes the phone shouldn't also press Play.
+    private var screenOnAt = 0L
+    private val screenOnReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) {
+            screenOnAt = android.os.SystemClock.elapsedRealtime()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        runCatching { unregisterReceiver(screenOnReceiver) }
     }
 
     private fun play(pcUuid: String, game: RecentGame?) {
@@ -147,6 +166,8 @@ class HomeActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val fromPad = event.isFromSource(android.view.InputDevice.SOURCE_GAMEPAD)
+        if (fromPad && android.os.SystemClock.elapsedRealtime() - screenOnAt < 1500) return true
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_MENU -> { quickOpen = !quickOpen; return true }
@@ -219,6 +240,24 @@ private fun HomeScreen(
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             TopBar(context, refreshKey)
+            val newNetwork = remember(refreshKey) { pc != null && OnboardingActivity.isDone(context) && Recents.needsCheck(context) }
+            if (newNetwork) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .padding(bottom = 8.dp)
+                        .border(1.dp, OphiAccent.copy(alpha = 0.5f), OphiCardShape)
+                        .background(com.ophistreamer.ui.OphiCard, OphiCardShape)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("New network. Run a quick check so the stream uses the best settings.", color = OphiText, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    OphiSecondaryButton("Check", Modifier.width(110.dp), height = 36.dp) {
+                        context.startActivity(Intent(context, LinkCheckActivity::class.java).putExtra(LinkCheckActivity.EXTRA_AUTOSTART, true))
+                    }
+                }
+            }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 14.dp)) {
                 val wide = maxWidth > 600.dp
                 if (wide) {
@@ -297,12 +336,22 @@ private fun Hero(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    Column(
+    val art = remember(lastGame?.pcUuid, lastGame?.appId) { lastGame?.let { boxArt(context, it) } }
+    Box(
         modifier
             .border(1.dp, OphiBorder, OphiCardShape)
-            .background(Brush.verticalGradient(listOf(OphiHeroTop, com.ophistreamer.ui.OphiCard)), OphiCardShape)
-            .padding(18.dp),
+            .clip(OphiCardShape)
+            .background(com.ophistreamer.ui.OphiCard),
     ) {
+        if (art != null) {
+            Image(art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize().alpha(0.45f))
+        }
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(listOf(OphiHeroTop.copy(alpha = if (art != null) 0.55f else 1f), com.ophistreamer.ui.OphiCard.copy(alpha = 0.97f))),
+            ),
+        )
+    Column(Modifier.matchParentSize().padding(18.dp)) {
         if (pc == null) {
             Text("Let's find your PC", color = OphiText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
@@ -373,27 +422,42 @@ private fun Hero(
             if (showRepair) OphiSecondaryButton(if (repairing) "Repairing..." else "Repair", Modifier.weight(1f), enabled = !repairing) { onRepair() }
         }
     }
+    }
+}
+
+/** Artemis caches box art as cache/boxart/<pcUuid>/<appId>.png */
+private fun boxArt(context: Context, game: RecentGame): androidx.compose.ui.graphics.ImageBitmap? {
+    val f = File(context.cacheDir, "boxart/${game.pcUuid}/${game.appId}.png")
+    return if (f.exists()) runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull() else null
 }
 @Composable
 private fun Shelf(pc: SavedPc?, games: List<RecentGame>, onPlay: (String, RecentGame?) -> Unit) {
     val context = LocalContext.current
+    var favKey by remember { mutableIntStateOf(0) }
+    val favorites = remember(favKey, pc?.uuid) { Recents.favorites(context).filter { pc != null && it.pcUuid.equals(pc.uuid, ignoreCase = true) } }
+    val toggle: (RecentGame) -> Unit = { g -> Recents.toggleFavorite(context, g); favKey++ }
+    if (favorites.isNotEmpty()) {
+        OphiCaption("Favourites")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(favorites) { g -> Capsule(context, g, true, { onPlay(g.pcUuid, g) }, { toggle(g) }) }
+        }
+        Spacer(Modifier.height(10.dp))
+    }
     OphiCaption("Recent")
     if (pc == null || games.isEmpty()) {
         Text("Games you play show up here.", color = OphiMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
         return
     }
+    if (favorites.isEmpty()) Text("Long-press a game to add it to Favourites.", color = OphiMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(games.take(8)) { g -> Capsule(context, g) { onPlay(g.pcUuid, g) } }
+        items(games.take(8)) { g -> Capsule(context, g, favorites.any { it.appId == g.appId && it.appName == g.appName }, { onPlay(g.pcUuid, g) }, { toggle(g) }) }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun Capsule(context: Context, game: RecentGame, onClick: () -> Unit) {
-    // Artemis caches box art as cache/boxart/<pcUuid>/<appId>.png
-    val art = remember(game.pcUuid, game.appId) {
-        val f = File(context.cacheDir, "boxart/${game.pcUuid}/${game.appId}.png")
-        if (f.exists()) runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull() else null
-    }
+private fun Capsule(context: Context, game: RecentGame, favorite: Boolean, onClick: () -> Unit, onLongPress: () -> Unit) {
+    val art = remember(game.pcUuid, game.appId) { boxArt(context, game) }
     Box(
         Modifier
             .width(84.dp)
@@ -401,9 +465,12 @@ private fun Capsule(context: Context, game: RecentGame, onClick: () -> Unit) {
             .focusRing(OphiCardShape)
             .border(1.dp, OphiBorder, OphiCardShape)
             .background(com.ophistreamer.ui.OphiCard, OphiCardShape)
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
         contentAlignment = Alignment.BottomStart,
     ) {
+        if (favorite) {
+            Text("\u2605", color = OphiWarn, fontSize = 14.sp, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
+        }
         if (art != null) {
             Image(art, contentDescription = game.appName, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
@@ -458,6 +525,10 @@ private fun QuickMenu(onClose: () -> Unit) {
     var res by remember { mutableStateOf(prefs.getString("list_resolution", native) ?: native) }
     var overlay by remember { mutableStateOf(prefs.getBoolean("checkbox_enable_perf_overlay", false)) }
     var autoResume by remember { mutableStateOf(AutoResume.isEnabled(context)) }
+    var openOnPad by remember { mutableStateOf(prefs.getBoolean(ControllerAttachActivity.PREF_ENABLED, true)) }
+    var osc by remember { mutableStateOf(prefs.getBoolean("checkbox_show_onscreen_controls", false)) }
+    var oscTheme by remember { mutableStateOf(OscTheme.current(context)) }
+    var oscOpacity by remember { mutableIntStateOf(prefs.getInt("seekbar_osc_opacity", 90).coerceIn(20, 100)) }
 
     Column(
         Modifier
@@ -502,7 +573,35 @@ private fun QuickMenu(onClose: () -> Unit) {
             prefs.edit().putBoolean(AutoResume.PREF_ENABLED, it).apply()
         }
 
-        OphiSecondaryButton("Calibrate now") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
+        QuickSwitch("Open when controller is plugged in", openOnPad) {
+            openOnPad = it
+            prefs.edit().putBoolean(ControllerAttachActivity.PREF_ENABLED, it).apply()
+        }
+
+        QuickLabel("On-screen controls")
+        QuickSwitch("Show on-screen controls", osc) {
+            osc = it
+            prefs.edit().putBoolean("checkbox_show_onscreen_controls", it).apply()
+        }
+        OphiSegmented(OscTheme.ids, oscTheme, { OscTheme.label(it) }, Modifier.fillMaxWidth()) {
+            oscTheme = it
+            prefs.edit().putString(OscTheme.PREF, it).apply()
+        }
+        QuickLabel("Button opacity: $oscOpacity%")
+        Slider(
+            value = oscOpacity.toFloat(),
+            onValueChange = { oscOpacity = it.toInt() },
+            onValueChangeFinished = { prefs.edit().putInt("seekbar_osc_opacity", oscOpacity).apply() },
+            valueRange = 20f..100f,
+            steps = 15,
+            colors = SliderDefaults.colors(thumbColor = OphiAccent, activeTrackColor = OphiAccent, inactiveTrackColor = OphiBorder),
+        )
+        Text(
+            "To move, resize or hide buttons: in a game, tap the faint gear on screen. Each tap switches mode: show/hide, move, resize, then save.",
+            color = OphiMuted, fontSize = 11.sp,
+        )
+
+        OphiSecondaryButton("Check connection") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
         OphiSecondaryButton("Advanced settings") { context.startActivity(Intent(context, StreamSettings::class.java)) }
         OphiSecondaryButton("Close") { onClose() }
         Text("Changes apply to the next stream.", color = OphiMuted, fontSize = 11.sp)

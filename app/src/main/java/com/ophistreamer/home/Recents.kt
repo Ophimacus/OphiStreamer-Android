@@ -26,6 +26,8 @@ object Recents {
     private const val PREFS = "ophi_home"
     private const val KEY_RECENTS = "recents"
     private const val KEY_CALIBRATED_AT = "calibrated_at"
+    private const val KEY_CALIBRATED_NET = "calibrated_net"
+    private const val KEY_FAVORITES = "favorites"
     private const val MAX = 12
 
     @JvmStatic
@@ -36,8 +38,14 @@ object Recents {
             it.pcUuid.equals(pcUuid, ignoreCase = true) && (it.appId == appId && it.appName == name)
         }
         val list = listOf(RecentGame(pcUuid, pcName ?: "", name, appId, appUuid, System.currentTimeMillis())) + rest
+        prefs(context).edit().putString(KEY_RECENTS, serialize(list.take(MAX))).apply()
+    }
+
+    fun all(context: Context): List<RecentGame> = parse(prefs(context).getString(KEY_RECENTS, null))
+
+    private fun serialize(list: List<RecentGame>): String {
         val arr = JSONArray()
-        for (g in list.take(MAX)) {
+        for (g in list) {
             arr.put(
                 JSONObject()
                     .put("pc", g.pcUuid).put("pcName", g.pcName)
@@ -45,11 +53,11 @@ object Recents {
                     .put("t", g.time),
             )
         }
-        prefs(context).edit().putString(KEY_RECENTS, arr.toString()).apply()
+        return arr.toString()
     }
 
-    fun all(context: Context): List<RecentGame> {
-        val raw = prefs(context).getString(KEY_RECENTS, null) ?: return emptyList()
+    private fun parse(raw: String?): List<RecentGame> {
+        if (raw == null) return emptyList()
         return try {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
@@ -69,8 +77,32 @@ object Recents {
     }
 
     fun markCalibrated(context: Context) {
-        prefs(context).edit().putLong(KEY_CALIBRATED_AT, System.currentTimeMillis()).apply()
+        prefs(context).edit()
+            .putLong(KEY_CALIBRATED_AT, System.currentTimeMillis())
+            .putString(KEY_CALIBRATED_NET, NetworkSignature.current(context))
+            .apply()
     }
+
+    /** True when the phone is on a network the connection check hasn't seen yet. */
+    fun needsCheck(context: Context): Boolean {
+        val now = NetworkSignature.current(context) ?: return false
+        return prefs(context).getString(KEY_CALIBRATED_NET, null) != now
+    }
+
+    // ---- Favourites (kept separately so they never fall off the recent list)
+
+    fun favorites(context: Context): List<RecentGame> = parse(prefs(context).getString(KEY_FAVORITES, null))
+
+    fun isFavorite(context: Context, g: RecentGame) = favorites(context).any { same(it, g) }
+
+    fun toggleFavorite(context: Context, g: RecentGame) {
+        val now = favorites(context)
+        val list = if (now.any { same(it, g) }) now.filterNot { same(it, g) } else listOf(g) + now
+        prefs(context).edit().putString(KEY_FAVORITES, serialize(list)).apply()
+    }
+
+    private fun same(a: RecentGame, b: RecentGame) =
+        a.pcUuid.equals(b.pcUuid, ignoreCase = true) && a.appId == b.appId && a.appName == b.appName
 
     fun calibratedAt(context: Context): Long = prefs(context).getLong(KEY_CALIBRATED_AT, 0)
 

@@ -171,7 +171,12 @@ public class VirtualController {
     }
 
     public void setOpacity(int opacity) {
+        // OphiStreamer: apply the chosen on-screen control theme to every button, then the opacity.
+        int[] theme = com.ophistreamer.home.OscTheme.colors(context);
         for (VirtualControllerElement element : elements) {
+            if (theme != null) {
+                element.setColors(theme[0], theme[1]);
+            }
             element.setOpacity(opacity);
         }
     }

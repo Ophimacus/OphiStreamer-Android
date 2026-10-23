@@ -112,6 +112,11 @@ object GamepadInput {
 }
 
 class LinkCheckActivity : ComponentActivity() {
+    companion object {
+        /** Start the check right away (first-run setup, new network). */
+        const val EXTRA_AUTOSTART = "ophi.autostart"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -121,7 +126,7 @@ class LinkCheckActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
                 ) {
-                    ConnectionScreen(onKeepScreenOn = ::keepScreenOn)
+                    ConnectionScreen(onKeepScreenOn = ::keepScreenOn, autoStart = intent.getBooleanExtra(EXTRA_AUTOSTART, false))
                 }
             }
         }
@@ -169,7 +174,7 @@ private const val CHECK_SECONDS = 30
  * Everything technical sits under "Show details".
  */
 @Composable
-fun ConnectionScreen(onKeepScreenOn: (Boolean) -> Unit) {
+fun ConnectionScreen(onKeepScreenOn: (Boolean) -> Unit, autoStart: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -312,6 +317,13 @@ fun ConnectionScreen(onKeepScreenOn: (Boolean) -> Unit) {
             running = false
             done = true
             onKeepScreenOn(false)
+        }
+    }
+
+    LaunchedEffect(autoStart) {
+        if (autoStart) {
+            delay(1500) // let the quick PC lookup finish first
+            runCheck()
         }
     }
 
@@ -528,7 +540,8 @@ fun ConnectionScreen(onKeepScreenOn: (Boolean) -> Unit) {
                     "Controller",
                     controllers.firstOrNull()?.name ?: "None",
                     if (controllers.isNotEmpty()) Good else Muted,
-                    sub = "Last input: " + GamepadInput.lastButton.ifBlank { "press a button" },
+                    sub = controllers.firstOrNull()?.let { "USB ID %04x:%04x · ".format(it.vendorId, it.productId) }.orEmpty() +
+                        "Last input: " + GamepadInput.lastButton.ifBlank { "press a button" },
                     last = true,
                 )
             }

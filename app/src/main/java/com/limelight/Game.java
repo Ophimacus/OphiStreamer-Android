@@ -3662,11 +3662,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 }
 
                 if (connectionStatus == MoonBridge.CONN_STATUS_POOR) {
+                    // OphiStreamer: a compact badge rather than a full sentence over the game.
                     if (prefConfig.bitrate > 5000) {
-                        notificationOverlayView.setText(getResources().getString(R.string.slow_connection_msg));
+                        notificationOverlayView.setText("\u25B2 Slow connection \u00B7 lower bitrate in Quick menu");
                     }
                     else {
-                        notificationOverlayView.setText(getResources().getString(R.string.poor_connection_msg));
+                        notificationOverlayView.setText("\u25B2 Weak connection");
                     }
 
                     requestedNotificationOverlayVisibility = View.VISIBLE;

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- USB controllers that open OphiStreamer when plugged in. Check a pad's ID in Connection > Show details. -->
+<resources>
+    <!-- GameSir (vendor 0x3537) -->
+    <usb-device vendor-id="13623" />
+    <!-- Microsoft / Xbox-mode controllers (vendor 0x045E) -->
+    <usb-device vendor-id="1118" />
+</resources>
