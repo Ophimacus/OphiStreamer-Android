@@ -100,8 +100,15 @@ import kotlinx.coroutines.withContext
  * button hints and a slide-in Quick menu. Artemis's PC list (PcView) is still one button away.
  */
 class HomeActivity : ComponentActivity() {
+    companion object {
+        /** Set by the Quick Settings tile: start the last game as soon as Home opens. */
+        const val EXTRA_AUTOPLAY = "ophi.autoplay"
+    }
+
     private var quickOpen by mutableStateOf(false)
     private var refreshKey by mutableIntStateOf(0)
+    private var startStatus by mutableStateOf<StartStatus?>(null)
+    private val starter by lazy { StreamStarter(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,15 +119,30 @@ class HomeActivity : ComponentActivity() {
                 HomeScreen(
                     refreshKey = refreshKey,
                     quickOpen = quickOpen,
+                    startStatus = startStatus,
                     onToggleQuick = { quickOpen = !quickOpen },
+                    onPlay = { pcUuid, game -> play(pcUuid, game) },
                 )
             }
         }
+        if (intent.getBooleanExtra(EXTRA_AUTOPLAY, false)) {
+            Recents.all(this).firstOrNull()?.let { play(it.pcUuid, it) }
+        }
+    }
+
+    private fun play(pcUuid: String, game: RecentGame?) {
+        starter.start(pcUuid, game) { startStatus = it }
     }
 
     override fun onResume() {
         super.onResume()
         refreshKey++
+    }
+
+    override fun onStop() {
+        super.onStop()
+        starter.cancel()
+        if (startStatus == StartStatus.Connecting) startStatus = null
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -135,9 +157,14 @@ class HomeActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 }
-
 @Composable
-private fun HomeScreen(refreshKey: Int, quickOpen: Boolean, onToggleQuick: () -> Unit) {
+private fun HomeScreen(
+    refreshKey: Int,
+    quickOpen: Boolean,
+    startStatus: StartStatus?,
+    onToggleQuick: () -> Unit,
+    onPlay: (String, RecentGame?) -> Unit,
+) {
     val context = LocalContext.current
     val pcs = remember(refreshKey) { Recents.savedPcs(context) }
     val recents = remember(refreshKey) { Recents.all(context) }
@@ -150,10 +177,15 @@ private fun HomeScreen(refreshKey: Int, quickOpen: Boolean, onToggleQuick: () ->
     var probed by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
 
+    // Check the PC quietly; while it doesn't answer, keep checking every few seconds.
     LaunchedEffect(pc?.address, refreshKey) {
         probed = false
-        latency = pc?.address?.let { addr -> withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, addr, 47989) } }
-        probed = true
+        while (true) {
+            latency = pc?.address?.let { addr -> withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, addr, 47989) } }
+            probed = true
+            if (latency != null || pc?.address == null) break
+            kotlinx.coroutines.delay(4000)
+        }
     }
     LaunchedEffect(pc?.uuid) { runCatching { playFocus.requestFocus() } }
 
@@ -164,22 +196,18 @@ private fun HomeScreen(refreshKey: Int, quickOpen: Boolean, onToggleQuick: () ->
                 val wide = maxWidth > 600.dp
                 if (wide) {
                     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Hero(pc, pcRecents.firstOrNull(), latency, probed, playFocus, Modifier.weight(1.3f).fillMaxHeight())
-                        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
-                            Shelf(pc, pcRecents)
-                            Spacer(Modifier.height(10.dp))
-                            LinkPanel(context, refreshKey)
+                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, playFocus, onPlay, Modifier.weight(1.3f).fillMaxHeight())
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Shelf(pc, pcRecents, onPlay)
                         }
                     }
                 } else {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Hero(pc, pcRecents.firstOrNull(), latency, probed, playFocus, Modifier.fillMaxWidth().height(300.dp))
-                        Shelf(pc, pcRecents)
-                        LinkPanel(context, refreshKey)
+                        Hero(pc, pcRecents.firstOrNull(), latency, probed, startStatus, playFocus, onPlay, Modifier.fillMaxWidth().height(280.dp))
+                        Shelf(pc, pcRecents, onPlay)
                     }
                 }
-            }
-            HintBar(onToggleQuick)
+            }            HintBar(onToggleQuick)
         }
 
         AnimatedVisibility(
@@ -218,6 +246,8 @@ private fun TopBar(context: Context, refreshKey: Int) {
             color = if (hotspot != null || wifi.connected) OphiText else OphiBad, fontSize = 12.sp,
         )
         Text(if (pads.isNotEmpty()) "Controller" else "No controller", color = if (pads.isNotEmpty()) OphiGood else OphiMuted, fontSize = 12.sp)
+        val heat = remember(refreshKey) { HeatGuard.statusText(context) }
+        if (heat != null && heat.second > 0) Text(heat.first, color = if (heat.second == 2) OphiBad else OphiWarn, fontSize = 12.sp)
         Text("$battery%", color = if (battery in 0..15) OphiWarn else OphiText, fontSize = 12.sp)
         Text(time, color = OphiText, fontSize = 12.sp)
     }
@@ -229,57 +259,79 @@ private fun Hero(
     lastGame: RecentGame?,
     latency: Double?,
     probed: Boolean,
+    startStatus: StartStatus?,
     playFocus: FocusRequester,
+    onPlay: (String, RecentGame?) -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     Column(
         modifier
             .border(1.dp, OphiBorder, OphiCardShape)
             .background(Brush.verticalGradient(listOf(OphiHeroTop, com.ophistreamer.ui.OphiCard)), OphiCardShape)
-            .padding(16.dp),
+            .padding(18.dp),
     ) {
         if (pc == null) {
-            Text("No PC yet", color = OphiText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text("Find your PC and pair it once. After that, PLAY starts streaming in one tap.", color = OphiMuted, fontSize = 13.sp)
+            Text("Let's find your PC", color = OphiText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Pair it once. After that, Play starts streaming in one tap.", color = OphiMuted, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
-            OphiPrimaryButton("Find PCs", focusRequester = playFocus) { context.startActivity(Intent(context, PcView::class.java)) }
+            OphiPrimaryButton("Find my PC", focusRequester = playFocus) { context.startActivity(Intent(context, PcView::class.java)) }
             return@Column
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(pc.name, color = OphiText, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    (pc.address ?: "address unknown") + if (lastGame != null && lastGame.appName.isNotBlank()) " · last: ${lastGame.appName}" else "",
-                    color = OphiMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            when {
-                !pc.paired -> OphiPill("Not paired", OphiWarn)
-                !probed -> OphiPill("Checking", OphiMuted)
-                latency != null -> OphiPill("Online", OphiGood)
-                else -> OphiPill("Offline", OphiBad)
-            }
+
+        // One status line, plain words.
+        val connecting = startStatus == StartStatus.Connecting
+        val (statusText, statusColor) = when {
+            connecting -> "Connecting..." to OphiAccent
+            startStatus == StartStatus.NotPaired || !pc.paired -> "Needs pairing once" to OphiWarn
+            startStatus == StartStatus.Offline -> "Not connected" to OphiBad
+            startStatus is StartStatus.Failed -> startStatus.message to OphiBad
+            !probed -> "Checking..." to OphiMuted
+            latency != null -> "Ready · ${"%.0f".format(latency)} ms" to OphiGood
+            else -> "Not connected" to OphiBad
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OphiStat(latency?.let { "%.0f ms".format(it) } ?: "-", "LATENCY", if (latency != null && latency < 20) OphiGood else OphiText)
-            OphiStat(prefs.getString("list_fps", "60") ?: "60", "FPS")
-            OphiStat("${prefs.getInt("seekbar_bitrate_kbps", 0) / 1000}".let { if (it == "0") "auto" else it }, "MBPS")
+        val reachable = latency != null && startStatus != StartStatus.Offline
+
+        Text(pc.name, color = OphiText, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(9.dp).background(statusColor, CircleShape))
+            Text(statusText, color = statusColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
         }
+        if (!reachable && !connecting && probed && pc.paired) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Turn on your phone hotspot and connect the laptop to it. This updates by itself.",
+                color = OphiMuted, fontSize = 13.sp,
+            )
+        }
+        if (connecting) {
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.material3.LinearProgressIndicator(color = OphiAccent, trackColor = OphiBorder, modifier = Modifier.fillMaxWidth())
+        }
+
         Spacer(Modifier.weight(1f))
-        OphiPrimaryButton(
-            text = if (lastGame != null) "Play ${lastGame.appName.ifBlank { "" }}".trim() else "Play",
-            focusRequester = playFocus,
-        ) { Launch.play(context, pc.uuid, lastGame) }
+        when {
+            !pc.paired || startStatus == StartStatus.NotPaired ->
+                OphiPrimaryButton("Pair once", focusRequester = playFocus) { context.startActivity(Intent(context, PcView::class.java)) }
+            else -> OphiPrimaryButton(
+                text = when {
+                    connecting -> "Connecting..."
+                    lastGame != null && lastGame.appName.isNotBlank() -> "Play ${lastGame.appName}"
+                    else -> "Play"
+                },
+                enabled = !connecting,
+                height = 60.dp,
+                focusRequester = playFocus,
+            ) { onPlay(pc.uuid, lastGame) }
+        }
         Spacer(Modifier.height(8.dp))
-        OphiSecondaryButton("All games on ${pc.name}") { Launch.play(context, pc.uuid, null) }
+        OphiSecondaryButton("All games", enabled = !connecting) { onPlay(pc.uuid, null) }
     }
 }
-
 @Composable
-private fun Shelf(pc: SavedPc?, games: List<RecentGame>) {
+private fun Shelf(pc: SavedPc?, games: List<RecentGame>, onPlay: (String, RecentGame?) -> Unit) {
     val context = LocalContext.current
     OphiCaption("Recent")
     if (pc == null || games.isEmpty()) {
@@ -287,7 +339,7 @@ private fun Shelf(pc: SavedPc?, games: List<RecentGame>) {
         return
     }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(games.take(8)) { g -> Capsule(context, g) { Launch.play(context, g.pcUuid, g) } }
+        items(games.take(8)) { g -> Capsule(context, g) { onPlay(g.pcUuid, g) } }
     }
 }
 
@@ -313,35 +365,6 @@ private fun Capsule(context: Context, game: RecentGame, onClick: () -> Unit) {
         } else {
             Text(game.appName.ifBlank { "Game" }, color = OphiMuted, fontSize = 11.sp, modifier = Modifier.padding(6.dp), maxLines = 3)
         }
-    }
-}
-
-@Composable
-private fun LinkPanel(context: Context, refreshKey: Int) {
-    val hotspot = remember(refreshKey) { NetProbe.phoneHotspot(context) }
-    val wifi = remember(refreshKey) { NetProbe.wifiStatus(context) }
-    val pads = remember(refreshKey) { DeviceProbe.controllers() }
-    val heat = remember(refreshKey) { HeatGuard.statusText(context) }
-    val calibrated = remember(refreshKey) { Recents.calibratedAt(context) }
-    OphiCaption("Link")
-    OphiCard(Modifier.fillMaxWidth()) {
-        OphiRow(
-            "Connection",
-            when {
-                hotspot != null -> "Phone hotspot"
-                wifi.connected -> "${wifi.band} · ${wifi.rssiDbm} dBm"
-                else -> "Not connected"
-            },
-            if (hotspot != null || wifi.connected) OphiText else OphiBad,
-        )
-        OphiRow("Controller", pads.firstOrNull()?.name ?: "None", if (pads.isNotEmpty()) OphiGood else OphiMuted)
-        if (heat != null) OphiRow("Phone temperature", heat.first, when (heat.second) { 2 -> OphiBad; 1 -> OphiWarn; else -> OphiGood })
-        OphiRow(
-            "Calibration",
-            if (calibrated == 0L) "Not yet" else SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(calibrated)),
-            if (calibrated == 0L) OphiWarn else OphiGood,
-            last = true,
-        )
     }
 }
 

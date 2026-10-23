@@ -49,8 +49,8 @@ class PlayTileService : TileService() {
 class PlayFromTileActivity : android.app.Activity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        val last = Recents.all(this).firstOrNull()
-        if (last != null) Launch.play(this, last.pcUuid, last) else startActivity(Intent(this, HomeActivity::class.java))
+        // Home starts the last game and shows any problem on its card (no popups).
+        startActivity(Intent(this, HomeActivity::class.java).putExtra(HomeActivity.EXTRA_AUTOPLAY, true))
         finish()
     }
 }

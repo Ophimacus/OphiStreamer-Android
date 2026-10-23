@@ -55,6 +55,13 @@ class ReconnectActivity : ComponentActivity() {
         private const val TIMEOUT_MS = 90_000L
     }
 
+    private val starter by lazy { StreamStarter(this) }
+
+    override fun onStop() {
+        super.onStop()
+        starter.cancel()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -76,8 +83,17 @@ class ReconnectActivity : ComponentActivity() {
                     pcName = pcName,
                     gameName = game.appName,
                     onReachable = {
-                        Launch.play(this, pcUuid, game)
-                        finish()
+                        // Same quiet start as Home; if it can't start, Home explains why on its card.
+                        starter.start(pcUuid, game) { status ->
+                            when (status) {
+                                StartStatus.Connecting -> Unit
+                                StartStatus.Started -> finish()
+                                else -> {
+                                    startActivity(android.content.Intent(this, HomeActivity::class.java))
+                                    finish()
+                                }
+                            }
+                        }
                     },
                     onCancel = { finish() },
                 )
