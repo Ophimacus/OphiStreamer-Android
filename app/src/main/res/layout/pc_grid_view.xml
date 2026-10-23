@@ -14,4 +14,7 @@
     android:drawSelectorOnTop="true"
     android:horizontalSpacing="12dp"
     android:verticalSpacing="12dp"
-    android:gravity="center"/>
+    android:gravity="center">
+    <!-- Focus the grid as soon as it appears so a controller works on the first press. -->
+    <requestFocus />
+</GridView>

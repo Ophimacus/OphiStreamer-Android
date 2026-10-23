@@ -58,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -130,7 +132,7 @@ class LinkCheckActivity : ComponentActivity() {
                 GamepadInput.lastButton = KeyEvent.keyCodeToString(event.keyCode).removePrefix("KEYCODE_")
                 GamepadInput.events++
             }
-            return true
+            // Don't consume: A falls back to "select" and B to "back", so the screen stays navigable.
         }
         return super.dispatchKeyEvent(event)
     }
@@ -142,7 +144,6 @@ class LinkCheckActivity : ComponentActivity() {
             GamepadInput.rightX = event.getAxisValue(MotionEvent.AXIS_Z)
             GamepadInput.rightY = event.getAxisValue(MotionEvent.AXIS_RZ)
             GamepadInput.events++
-            return true
         }
         return super.dispatchGenericMotionEvent(event)
     }
@@ -662,6 +663,15 @@ private fun RowScope.StatTile(value: String, label: String, color: Color) {
     }
 }
 
+/** White ring around whatever a gamepad or keyboard has focused (SteamOS-style focus). */
+@Composable
+private fun Modifier.focusRing(shape: Shape): Modifier {
+    var focused by remember { mutableStateOf(false) }
+    return this
+        .onFocusChanged { focused = it.isFocused }
+        .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+}
+
 @Composable
 private fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
@@ -669,6 +679,7 @@ private fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(56.dp)
             .alpha(if (enabled) 1f else 0.45f)
+            .focusRing(RoundedCornerShape(4.dp))
             .background(Brush.horizontalGradient(listOf(Accent, AccentDeep)), RoundedCornerShape(4.dp))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -688,6 +699,7 @@ private fun SecondaryButton(
         modifier
             .height(46.dp)
             .alpha(if (enabled) 1f else 0.45f)
+            .focusRing(RoundedCornerShape(4.dp))
             .border(1.dp, CardBorder, RoundedCornerShape(4.dp))
             .background(Color(0xFF1F2833), RoundedCornerShape(4.dp))
             .clickable(enabled = enabled, onClick = onClick),
@@ -719,6 +731,7 @@ private fun <T> Segmented(
                 Modifier
                     .weight(1f)
                     .height(38.dp)
+                    .focusRing(RoundedCornerShape(4.dp))
                     .background(if (isSel) Accent else Color.Transparent, RoundedCornerShape(4.dp))
                     .clickable(enabled = enabled) { onSelect(o) },
                 contentAlignment = Alignment.Center,
