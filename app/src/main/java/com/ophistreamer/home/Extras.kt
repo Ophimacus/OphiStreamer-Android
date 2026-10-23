@@ -61,3 +61,114 @@ object NetworkSignature {
         return "wifi:" + (wifi.ssid ?: wifi.gateway ?: "unknown")
     }
 }
+
+/**
+ * Named on-screen control layouts. Artemis keeps one layout in the "OSC" prefs file (element id -> JSON);
+ * we snapshot that file per layout and swap it in when the player switches.
+ */
+object OscLayouts {
+    private const val PREFS = "ophi_osc_layouts"
+    private const val OSC = com.limelight.binding.input.virtual_controller.VirtualControllerConfigurationLoader.OSC_PREFERENCE
+    private const val KEY_NAMES = "names"
+    private const val KEY_ACTIVE = "active"
+
+    fun names(context: Context): List<String> {
+        val p = prefs(context)
+        val raw = p.getString(KEY_NAMES, null)
+        if (raw == null) {
+            // First use: whatever Artemis has now becomes the first layout.
+            val first = "My layout"
+            p.edit().putString(KEY_NAMES, org.json.JSONArray(listOf(first)).toString())
+                .putString(KEY_ACTIVE, first).putString(key(first), snapshot(context)).apply()
+            return listOf(first)
+        }
+        val arr = org.json.JSONArray(raw)
+        return (0 until arr.length()).map { arr.getString(it) }
+    }
+
+    fun active(context: Context): String {
+        val all = names(context)
+        return prefs(context).getString(KEY_ACTIVE, null)?.takeIf { it in all } ?: all.first()
+    }
+
+    /** Called after the in-game editor saves, so the edit lands in the active layout. */
+    @JvmStatic
+    fun onEdited(context: Context) {
+        prefs(context).edit().putString(key(active(context)), snapshot(context)).apply()
+    }
+
+    fun select(context: Context, name: String) {
+        if (name == active(context)) return
+        onEdited(context)
+        restore(context, prefs(context).getString(key(name), "{}") ?: "{}")
+        prefs(context).edit().putString(KEY_ACTIVE, name).apply()
+    }
+
+    /** Cycles to the next layout; returns its name. Used by the in-game menu. */
+    @JvmStatic
+    fun next(context: Context): String {
+        val all = names(context)
+        val n = all[(all.indexOf(active(context)) + 1) % all.size]
+        select(context, n)
+        return n
+    }
+
+    /** New layout, starting as a copy of the current one so small tweaks are easy. */
+    fun create(context: Context): String {
+        val all = names(context)
+        var i = all.size + 1
+        while ("Layout $i" in all) i++
+        val name = "Layout $i"
+        onEdited(context)
+        prefs(context).edit()
+            .putString(KEY_NAMES, org.json.JSONArray(all + name).toString())
+            .putString(key(name), snapshot(context))
+            .putString(KEY_ACTIVE, name)
+            .apply()
+        return name
+    }
+
+    fun rename(context: Context, from: String, to: String): Boolean {
+        val all = names(context)
+        val clean = to.trim().take(24)
+        if (clean.isEmpty() || clean in all || from !in all) return false
+        val p = prefs(context)
+        p.edit()
+            .putString(KEY_NAMES, org.json.JSONArray(all.map { if (it == from) clean else it }).toString())
+            .putString(key(clean), p.getString(key(from), "{}"))
+            .remove(key(from))
+            .apply()
+        if (p.getString(KEY_ACTIVE, null) == from) p.edit().putString(KEY_ACTIVE, clean).apply()
+        return true
+    }
+
+    fun delete(context: Context, name: String) {
+        val all = names(context)
+        if (all.size <= 1 || name !in all) return
+        val rest = all - name
+        if (active(context) == name) select(context, rest.first())
+        prefs(context).edit().putString(KEY_NAMES, org.json.JSONArray(rest).toString()).remove(key(name)).apply()
+    }
+
+    /** Puts the active layout back to Artemis's default positions. */
+    fun resetActive(context: Context) {
+        restore(context, "{}")
+        onEdited(context)
+    }
+
+    private fun snapshot(context: Context): String {
+        val o = org.json.JSONObject()
+        for ((k, v) in context.getSharedPreferences(OSC, Context.MODE_PRIVATE).all) if (v is String) o.put(k, v)
+        return o.toString()
+    }
+
+    private fun restore(context: Context, json: String) {
+        val o = try { org.json.JSONObject(json) } catch (_: org.json.JSONException) { org.json.JSONObject() }
+        val e = context.getSharedPreferences(OSC, Context.MODE_PRIVATE).edit().clear()
+        for (k in o.keys()) e.putString(k, o.getString(k))
+        e.commit()
+    }
+
+    private fun key(name: String) = "layout:$name"
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}

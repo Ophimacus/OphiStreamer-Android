@@ -1141,6 +1141,16 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         prefConfig.onscreenController= virtualController.switchShowHide() != 0;
     }
 
+    /** OphiStreamer: switch to the next saved on-screen layout without leaving the game. */
+    public void nextOscLayout() {
+        String name = com.ophistreamer.home.OscLayouts.next(this);
+        if (virtualController != null) {
+            virtualController.refreshLayout();
+            virtualController.show();
+        }
+        Toast.makeText(this, "Controls layout: " + name, Toast.LENGTH_SHORT).show();
+    }
+
     private void setPreferredOrientationForActivity() {
         Display display = getActiveDisplay(Game.this, prefConfig);
 

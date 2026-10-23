@@ -425,6 +425,7 @@ public class VirtualControllerConfigurationLoader {
         }
 
         prefEditor.apply();
+        com.ophistreamer.home.OscLayouts.onEdited(context);
     }
 
     public static void loadFromPreferences(final VirtualController controller, final Context context) {

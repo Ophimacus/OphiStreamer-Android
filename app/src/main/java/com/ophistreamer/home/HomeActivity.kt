@@ -529,6 +529,9 @@ private fun QuickMenu(onClose: () -> Unit) {
     var osc by remember { mutableStateOf(prefs.getBoolean("checkbox_show_onscreen_controls", false)) }
     var oscTheme by remember { mutableStateOf(OscTheme.current(context)) }
     var oscOpacity by remember { mutableIntStateOf(prefs.getInt("seekbar_osc_opacity", 90).coerceIn(20, 100)) }
+    var layouts by remember { mutableStateOf(OscLayouts.names(context)) }
+    var layout by remember { mutableStateOf(OscLayouts.active(context)) }
+    fun reloadLayouts() { layouts = OscLayouts.names(context); layout = OscLayouts.active(context) }
 
     Column(
         Modifier
@@ -596,8 +599,28 @@ private fun QuickMenu(onClose: () -> Unit) {
             steps = 15,
             colors = SliderDefaults.colors(thumbColor = OphiAccent, activeTrackColor = OphiAccent, inactiveTrackColor = OphiBorder),
         )
+        QuickLabel("Layout")
+        layouts.chunked(3).forEach { row ->
+            OphiSegmented(row, if (layout in row) layout else "", { it }, Modifier.fillMaxWidth()) {
+                OscLayouts.select(context, it)
+                reloadLayouts()
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphiSecondaryButton("New", Modifier.weight(1f)) { OscLayouts.create(context); reloadLayouts() }
+            OphiSecondaryButton("Rename", Modifier.weight(1f)) {
+                renameLayoutDialog(context, layout) { reloadLayouts() }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphiSecondaryButton("Reset", Modifier.weight(1f)) { OscLayouts.resetActive(context) }
+            OphiSecondaryButton("Delete", Modifier.weight(1f), enabled = layouts.size > 1) {
+                OscLayouts.delete(context, layout); reloadLayouts()
+            }
+        }
         Text(
-            "To move, resize or hide buttons: in a game, tap the faint gear on screen. Each tap switches mode: show/hide, move, resize, then save.",
+            "Each layout keeps its own button positions, sizes and hidden buttons. To edit the selected one: in a game, tap the faint gear on screen. " +
+                "Each tap switches mode: show/hide, move, resize, then save. Switch layouts mid-game from the stream menu > Advanced > Next controls layout.",
             color = OphiMuted, fontSize = 11.sp,
         )
 
@@ -630,4 +653,22 @@ private fun QuickSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
             colors = SwitchDefaults.colors(checkedTrackColor = OphiAccent, checkedThumbColor = Color.White),
         )
     }
+}
+
+/** Small system dialog: typing a name is the one place a keyboard is unavoidable. */
+private fun renameLayoutDialog(context: android.content.Context, current: String, onDone: () -> Unit) {
+    val input = android.widget.EditText(context).apply {
+        setText(current)
+        setSelectAllOnFocus(true)
+        isSingleLine = true
+    }
+    android.app.AlertDialog.Builder(context)
+        .setTitle("Rename layout")
+        .setView(input)
+        .setPositiveButton("Save") { _, _ ->
+            OscLayouts.rename(context, current, input.text.toString())
+            onDone()
+        }
+        .setNegativeButton("Cancel", null)
+        .show()
 }
