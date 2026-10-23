@@ -207,7 +207,8 @@ private fun HomeScreen(
                         Shelf(pc, pcRecents, onPlay)
                     }
                 }
-            }            HintBar(onToggleQuick)
+            }
+            HintBar(onToggleQuick)
         }
 
         AnimatedVisibility(
