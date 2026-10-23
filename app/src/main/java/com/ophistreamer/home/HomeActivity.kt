@@ -9,6 +9,22 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
+import com.ophistreamer.ui.OphiChoiceRow
+import com.ophistreamer.ui.OphiControlRow
+import com.ophistreamer.ui.OphiDividerLine
+import com.ophistreamer.ui.OphiLinkRow
+import com.ophistreamer.ui.OphiSection
+import com.ophistreamer.ui.OphiSlider
+import com.ophistreamer.ui.OphiTabs
+import com.ophistreamer.ui.OphiTextButton
+import com.ophistreamer.ui.OphiToggleRow
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
@@ -277,6 +293,9 @@ private fun HomeScreen(
             HintBar(onToggleQuick)
         }
 
+        AnimatedVisibility(visible = quickOpen, enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.fillMaxSize().background(Color(0x99000000)).clickable(onClick = onToggleQuick))
+        }
         AnimatedVisibility(
             visible = quickOpen,
             enter = slideInHorizontally { it },
@@ -517,141 +536,199 @@ private fun QuickMenu(onClose: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     val screen = remember { DeviceProbe.screen(context) }
+    var tab by remember { mutableIntStateOf(0) }
+    val firstTab = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+
+    Column(
+        Modifier
+            .fillMaxHeight()
+            .then(if (wide) Modifier.width(380.dp) else Modifier.fillMaxWidth())
+            .background(Color(0xFF0E141B))
+            .border(1.dp, OphiBorder)
+            .safeDrawingPadding()
+            .onPreviewKeyEvent {
+                // L1 / R1 switch tabs, like the Steam Deck's Quick Access menu.
+                if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (it.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_BUTTON_L1 -> { tab = (tab + 2) % 3; true }
+                    KeyEvent.KEYCODE_BUTTON_R1 -> { tab = (tab + 1) % 3; true }
+                    else -> false
+                }
+            },
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Quick menu", color = OphiText, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Box(
+                Modifier.size(40.dp).focusRing(CircleShape).clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) { Text("✕", color = OphiMuted, fontSize = 16.sp) }
+        }
+        OphiTabs(listOf("Stream", "Controls", "App"), tab, Modifier.padding(horizontal = 8.dp).focusRequester(firstTab)) { tab = it }
+
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            when (tab) {
+                0 -> StreamTab(prefs, screen)
+                1 -> ControlsTab(prefs)
+                else -> AppTab(prefs)
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().background(OphiBgBottom).padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Hint("⇆", "L1 / R1 Tabs", onClick = { tab = (tab + 1) % 3 })
+            Hint("B", "Close", onClick = onClose)
+            Spacer(Modifier.weight(1f))
+            Text("Applies to the next stream", color = OphiMuted, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun StreamTab(prefs: android.content.SharedPreferences, screen: com.ophistreamer.linkcheck.ScreenInfo) {
     val fpsOptions = remember { listOf(60, 90, 120).filter { it <= maxOf(60, screen.maxRefreshHz) } }
     var fps by remember { mutableIntStateOf(prefs.getString("list_fps", "60")?.toFloatOrNull()?.toInt() ?: 60) }
     var bitrate by remember { mutableFloatStateOf((prefs.getInt("seekbar_bitrate_kbps", 12000) / 1000f).coerceIn(3f, 40f)) }
     val native = "${screen.widthPx}x${screen.heightPx}"
     val resOptions = remember { listOf(native, "1280x720", "1920x1080").distinct() }
-    var res by remember { mutableStateOf(prefs.getString("list_resolution", native) ?: native) }
+    var res by remember { mutableStateOf(matchResolution(prefs.getString("list_resolution", native) ?: native, resOptions, native)) }
     var overlay by remember { mutableStateOf(prefs.getBoolean("checkbox_enable_perf_overlay", false)) }
-    var autoResume by remember { mutableStateOf(AutoResume.isEnabled(context)) }
-    var openOnPad by remember { mutableStateOf(prefs.getBoolean(ControllerAttachActivity.PREF_ENABLED, true)) }
+
+    OphiSection("Video") {
+        OphiControlRow("Resolution") {
+            OphiSegmented(resOptions, res, { if (it == native) "Native" else it.substringAfter('x') + "p" }, Modifier.fillMaxWidth()) {
+                res = it
+                prefs.edit().putString("list_resolution", it).apply()
+            }
+        }
+        OphiDividerLine()
+        OphiControlRow("Frame rate", "$fps FPS") {
+            OphiSegmented(fpsOptions, fps, { "$it" }, Modifier.fillMaxWidth()) {
+                fps = it
+                prefs.edit().putString("list_fps", it.toString()).apply()
+            }
+        }
+        OphiDividerLine()
+        OphiControlRow("Bitrate", "${bitrate.toInt()} Mbps") {
+            OphiSlider(bitrate, 3f..40f, 1f) {
+                bitrate = it
+                prefs.edit().putInt("seekbar_bitrate_kbps", it.toInt() * 1000).apply()
+            }
+        }
+    }
+    OphiSection("While streaming") {
+        OphiToggleRow("Performance overlay", overlay, "Frame time, delay and bitrate in a corner") {
+            overlay = it
+            prefs.edit().putBoolean("checkbox_enable_perf_overlay", it).apply()
+        }
+    }
+}
+
+/** Calibration or Artemis may store a size that isn't one of the buttons (e.g. a few pixels off native). */
+private fun matchResolution(stored: String, options: List<String>, native: String): String {
+    if (stored in options) return stored
+    val h = stored.substringAfter('x').toIntOrNull() ?: return native
+    return options.minByOrNull { kotlin.math.abs((it.substringAfter('x').toIntOrNull() ?: 0) - h) } ?: native
+}
+
+@Composable
+private fun ControlsTab(prefs: android.content.SharedPreferences) {
+    val context = LocalContext.current
     var osc by remember { mutableStateOf(prefs.getBoolean("checkbox_show_onscreen_controls", false)) }
     var oscTheme by remember { mutableStateOf(OscTheme.current(context)) }
     var oscOpacity by remember { mutableIntStateOf(prefs.getInt("seekbar_osc_opacity", 90).coerceIn(20, 100)) }
     var layouts by remember { mutableStateOf(OscLayouts.names(context)) }
     var layout by remember { mutableStateOf(OscLayouts.active(context)) }
-    fun reloadLayouts() { layouts = OscLayouts.names(context); layout = OscLayouts.active(context) }
+    var note by remember { mutableStateOf<String?>(null) }
+    fun reload() { layouts = OscLayouts.names(context); layout = OscLayouts.active(context) }
 
-    Column(
-        Modifier
-            .fillMaxHeight()
-            .width(330.dp)
-            .background(Color(0xFF10161E))
-            .border(1.dp, OphiBorder)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("Quick menu", color = OphiText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
-        QuickLabel("Frame rate")
-        OphiSegmented(fpsOptions, fps, { "$it" }, Modifier.fillMaxWidth()) {
-            fps = it
-            prefs.edit().putString("list_fps", it.toString()).apply()
-        }
-
-        QuickLabel("Bitrate: ${bitrate.toInt()} Mbps")
-        Slider(
-            value = bitrate,
-            onValueChange = { bitrate = it },
-            onValueChangeFinished = { prefs.edit().putInt("seekbar_bitrate_kbps", bitrate.toInt() * 1000).apply() },
-            valueRange = 3f..40f,
-            steps = 36,
-            colors = SliderDefaults.colors(thumbColor = OphiAccent, activeTrackColor = OphiAccent, inactiveTrackColor = OphiBorder),
-        )
-
-        QuickLabel("Resolution")
-        OphiSegmented(resOptions, res, { if (it == native) "Native" else it.substringAfter('x') + "p" }, Modifier.fillMaxWidth()) {
-            res = it
-            prefs.edit().putString("list_resolution", it).apply()
-        }
-
-        QuickSwitch("Performance overlay", overlay) {
-            overlay = it
-            prefs.edit().putBoolean("checkbox_enable_perf_overlay", it).apply()
-        }
-        QuickSwitch("Auto-resume after drops", autoResume) {
-            autoResume = it
-            prefs.edit().putBoolean(AutoResume.PREF_ENABLED, it).apply()
-        }
-
-        QuickSwitch("Open when controller is plugged in", openOnPad) {
-            openOnPad = it
-            prefs.edit().putBoolean(ControllerAttachActivity.PREF_ENABLED, it).apply()
-        }
-
-        QuickLabel("On-screen controls")
-        QuickSwitch("Show on-screen controls", osc) {
+    OphiSection("On-screen controls") {
+        OphiToggleRow("Show on-screen controls", osc, "Touch buttons over the game when no controller is used") {
             osc = it
             prefs.edit().putBoolean("checkbox_show_onscreen_controls", it).apply()
         }
-        OphiSegmented(OscTheme.ids, oscTheme, { OscTheme.label(it) }, Modifier.fillMaxWidth()) {
-            oscTheme = it
-            prefs.edit().putString(OscTheme.PREF, it).apply()
-        }
-        QuickLabel("Button opacity: $oscOpacity%")
-        Slider(
-            value = oscOpacity.toFloat(),
-            onValueChange = { oscOpacity = it.toInt() },
-            onValueChangeFinished = { prefs.edit().putInt("seekbar_osc_opacity", oscOpacity).apply() },
-            valueRange = 20f..100f,
-            steps = 15,
-            colors = SliderDefaults.colors(thumbColor = OphiAccent, activeTrackColor = OphiAccent, inactiveTrackColor = OphiBorder),
-        )
-        QuickLabel("Layout")
-        layouts.chunked(3).forEach { row ->
-            OphiSegmented(row, if (layout in row) layout else "", { it }, Modifier.fillMaxWidth()) {
-                OscLayouts.select(context, it)
-                reloadLayouts()
+        OphiDividerLine()
+        OphiControlRow("Theme") {
+            OphiSegmented(OscTheme.ids, oscTheme, { OscTheme.label(it) }, Modifier.fillMaxWidth()) {
+                oscTheme = it
+                prefs.edit().putString(OscTheme.PREF, it).apply()
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OphiSecondaryButton("New", Modifier.weight(1f)) { OscLayouts.create(context); reloadLayouts() }
-            OphiSecondaryButton("Rename", Modifier.weight(1f)) {
-                renameLayoutDialog(context, layout) { reloadLayouts() }
+        OphiDividerLine()
+        OphiControlRow("Opacity", "$oscOpacity%") {
+            OphiSlider(oscOpacity.toFloat(), 20f..100f, 5f) {
+                oscOpacity = it.toInt()
+                prefs.edit().putInt("seekbar_osc_opacity", oscOpacity).apply()
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OphiSecondaryButton("Reset", Modifier.weight(1f)) { OscLayouts.resetActive(context) }
-            OphiSecondaryButton("Delete", Modifier.weight(1f), enabled = layouts.size > 1) {
-                OscLayouts.delete(context, layout); reloadLayouts()
-            }
-        }
-        Text(
-            "Each layout keeps its own button positions, sizes and hidden buttons. To edit the selected one: in a game, tap the faint gear on screen. " +
-                "Each tap switches mode: show/hide, move, resize, then save. Switch layouts mid-game from the stream menu > Advanced > Next controls layout.",
-            color = OphiMuted, fontSize = 11.sp,
-        )
-
-        OphiSecondaryButton("Check connection") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
-        OphiSecondaryButton("Advanced settings") { context.startActivity(Intent(context, StreamSettings::class.java)) }
-        OphiSecondaryButton("Close") { onClose() }
-        Text("Changes apply to the next stream.", color = OphiMuted, fontSize = 11.sp)
     }
+
+    OphiSection("Layouts") {
+        layouts.forEachIndexed { i, name ->
+            if (i > 0) OphiDividerLine()
+            OphiChoiceRow(name, name == layout, if (name == layout) "In use" else null) {
+                OscLayouts.select(context, name)
+                reload()
+                note = null
+            }
+        }
+        OphiDividerLine()
+        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphiTextButton("+ New", Modifier.weight(1f)) {
+                val from = layout
+                OscLayouts.create(context)
+                reload()
+                note = "New layout copied from \"$from\". Edit it in a game."
+            }
+            OphiTextButton("Rename", Modifier.weight(1f)) { renameLayoutDialog(context, layout) { reload() } }
+            OphiTextButton("Reset", Modifier.weight(1f)) {
+                OscLayouts.resetActive(context)
+                note = "\"$layout\" is back to the default positions."
+            }
+            OphiTextButton("Delete", Modifier.weight(1f), enabled = layouts.size > 1) {
+                OscLayouts.delete(context, layout)
+                reload()
+                note = null
+            }
+        }
+    }
+    Text(
+        note ?: "To edit a layout, tap the gear in a game: show/hide → move → resize → save. Switch layouts mid-game from the stream menu.",
+        color = OphiMuted, fontSize = 12.sp,
+    )
 }
 
 @Composable
-private fun QuickLabel(text: String) {
-    Text(text, color = OphiText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-}
+private fun AppTab(prefs: android.content.SharedPreferences) {
+    val context = LocalContext.current
+    var autoResume by remember { mutableStateOf(AutoResume.isEnabled(context)) }
+    var openOnPad by remember { mutableStateOf(prefs.getBoolean(ControllerAttachActivity.PREF_ENABLED, true)) }
 
-@Composable
-private fun QuickSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .focusRing(OphiButtonShape)
-            .clickable { onChange(!checked) }
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = OphiText, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Switch(
-            checked = checked,
-            onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = OphiAccent, checkedThumbColor = Color.White),
-        )
+    OphiSection("Behaviour") {
+        OphiToggleRow("Auto-resume after drops", autoResume, "Reconnects to the same game by itself") {
+            autoResume = it
+            prefs.edit().putBoolean(AutoResume.PREF_ENABLED, it).apply()
+        }
+        OphiDividerLine()
+        OphiToggleRow("Open when controller is plugged in", openOnPad, "Goes straight to Home with Play ready") {
+            openOnPad = it
+            prefs.edit().putBoolean(ControllerAttachActivity.PREF_ENABLED, it).apply()
+        }
+    }
+    OphiSection("More") {
+        OphiLinkRow("Check connection") { context.startActivity(Intent(context, LinkCheckActivity::class.java)) }
+        OphiDividerLine()
+        OphiLinkRow("Advanced settings", "Artemis options") { context.startActivity(Intent(context, StreamSettings::class.java)) }
     }
 }
 
