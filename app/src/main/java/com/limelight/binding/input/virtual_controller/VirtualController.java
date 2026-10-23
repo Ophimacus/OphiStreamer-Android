@@ -218,6 +218,25 @@ public class VirtualController {
         VirtualControllerConfigurationLoader.loadFromPreferences(this, context);
     }
 
+    /** OphiStreamer layout editor: jump straight to a mode (no gear cycling) and hide the gear. */
+    public void setEditMode(ControllerMode mode) {
+        currentMode = mode;
+        buttonConfigure.setVisibility(View.GONE);
+        if (mode == ControllerMode.DisableEnableButtons) {
+            showElements();
+        } else {
+            showEnabledElements();
+        }
+        for (VirtualControllerElement element : elements) {
+            element.invalidate();
+        }
+    }
+
+    /** OphiStreamer layout editor: write the current positions, sizes and hidden buttons to the active layout. */
+    public void saveLayout() {
+        VirtualControllerConfigurationLoader.saveProfile(this, context);
+    }
+
     public ControllerMode getControllerMode() {
         return currentMode;
     }

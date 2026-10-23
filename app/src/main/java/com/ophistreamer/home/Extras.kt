@@ -172,3 +172,38 @@ object OscLayouts {
     private fun key(name: String) = "layout:$name"
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
+
+/**
+ * When the on-screen controls show. "auto" (default): on when no controller is connected, off the
+ * moment one connects, back on if it disconnects, live during a stream.
+ */
+object OscMode {
+    const val PREF = "ophi_osc_mode"
+    val ids = listOf("auto", "on", "off")
+
+    fun label(id: String) = when (id) {
+        "auto" -> "Auto"
+        "on" -> "Always"
+        else -> "Off"
+    }
+
+    @JvmStatic
+    fun current(context: Context): String =
+        PreferenceManager.getDefaultSharedPreferences(context).getString(PREF, "auto") ?: "auto"
+
+    @JvmStatic
+    fun isAuto(context: Context) = current(context) == "auto"
+
+    /** Keeps Artemis's own switches in step, so its settings screen and the stream agree with ours. */
+    fun set(context: Context, id: String) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+            .putString(PREF, id)
+            .putBoolean("checkbox_show_onscreen_controls", id != "off")
+            .putBoolean("checkbox_hide_osc_when_has_gamepad", id == "auto")
+            .apply()
+    }
+
+    /** A real controller (USB or Bluetooth), not the phone's own buttons. */
+    @JvmStatic
+    fun hasPhysicalGamepad(): Boolean = com.ophistreamer.linkcheck.DeviceProbe.controllers().any { it.external }
+}

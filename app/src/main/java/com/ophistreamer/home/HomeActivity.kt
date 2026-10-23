@@ -644,7 +644,7 @@ private fun matchResolution(stored: String, options: List<String>, native: Strin
 @Composable
 private fun ControlsTab(prefs: android.content.SharedPreferences) {
     val context = LocalContext.current
-    var osc by remember { mutableStateOf(prefs.getBoolean("checkbox_show_onscreen_controls", false)) }
+    var oscMode by remember { mutableStateOf(OscMode.current(context)) }
     var oscTheme by remember { mutableStateOf(OscTheme.current(context)) }
     var oscOpacity by remember { mutableIntStateOf(prefs.getInt("seekbar_osc_opacity", 90).coerceIn(20, 100)) }
     var layouts by remember { mutableStateOf(OscLayouts.names(context)) }
@@ -653,9 +653,18 @@ private fun ControlsTab(prefs: android.content.SharedPreferences) {
     fun reload() { layouts = OscLayouts.names(context); layout = OscLayouts.active(context) }
 
     OphiSection("On-screen controls") {
-        OphiToggleRow("Show on-screen controls", osc, "Touch buttons over the game when no controller is used") {
-            osc = it
-            prefs.edit().putBoolean("checkbox_show_onscreen_controls", it).apply()
+        OphiControlRow(
+            "Show touch controls",
+            when (oscMode) {
+                "auto" -> if (OscMode.hasPhysicalGamepad()) "Hidden: controller connected" else "On: no controller"
+                "on" -> "Always on"
+                else -> "Off"
+            },
+        ) {
+            OphiSegmented(OscMode.ids, oscMode, { OscMode.label(it) }, Modifier.fillMaxWidth()) {
+                oscMode = it
+                OscMode.set(context, it)
+            }
         }
         OphiDividerLine()
         OphiControlRow("Theme") {
@@ -671,6 +680,10 @@ private fun ControlsTab(prefs: android.content.SharedPreferences) {
                 prefs.edit().putInt("seekbar_osc_opacity", oscOpacity).apply()
             }
         }
+    }
+
+    OphiPrimaryButton("Edit layout \u00B7 $layout", height = 48.dp) {
+        context.startActivity(Intent(context, OscEditorActivity::class.java))
     }
 
     OphiSection("Layouts") {
@@ -703,7 +716,7 @@ private fun ControlsTab(prefs: android.content.SharedPreferences) {
         }
     }
     Text(
-        note ?: "To edit a layout, tap the gear in a game: show/hide → move → resize → save. Switch layouts mid-game from the stream menu.",
+        note ?: "Auto hides the touch controls while your GameSir is connected and brings them back if it disconnects, even mid-game.",
         color = OphiMuted, fontSize = 12.sp,
     )
 }

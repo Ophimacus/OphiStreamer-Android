@@ -352,6 +352,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
+        // OphiStreamer: in Auto mode the on-screen controls exist for every stream and hide while a controller is connected.
+        ophiOscAuto = com.ophistreamer.home.OscMode.isAuto(this);
+        if (ophiOscAuto) {
+            prefConfig.onscreenController = true;
+            prefConfig.hideOSCWhenHasGamepad = true;
+        }
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
 
         if (prefConfig.fullScreen) {
@@ -835,7 +841,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         if (prefConfig.onscreenController) {
             // create virtual onscreen controller
-            if (prefConfig.hideOSCWhenHasGamepad) {
+            if (ophiOscAuto) {
+                ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+                if (!ophiPadPresent) {
+                    initVirtualController();
+                }
+                inputManager.registerInputDeviceListener(ophiPadListener, null);
+            } else if (prefConfig.hideOSCWhenHasGamepad) {
                 if (!controllerHandler.hasController()) {
                     initVirtualController();
                 }
@@ -1096,6 +1108,42 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     public Boolean isKeyboardLayoutVisible() {
         return keyBoardLayoutController != null && keyBoardLayoutController.shown;
+    }
+
+    // OphiStreamer: live show/hide of the on-screen controls as controllers come and go (Auto mode).
+    private boolean ophiOscAuto;
+    private boolean ophiPadPresent;
+    private final Runnable ophiPadCheck = this::ophiUpdateOscForGamepads;
+    private final InputManager.InputDeviceListener ophiPadListener = new InputManager.InputDeviceListener() {
+        // Devices announce in bursts; check once things settle.
+        @Override public void onInputDeviceAdded(int id) { ophiSchedulePadCheck(); }
+        @Override public void onInputDeviceRemoved(int id) { ophiSchedulePadCheck(); }
+        @Override public void onInputDeviceChanged(int id) { ophiSchedulePadCheck(); }
+    };
+
+    private void ophiSchedulePadCheck() {
+        getWindow().getDecorView().removeCallbacks(ophiPadCheck);
+        getWindow().getDecorView().postDelayed(ophiPadCheck, 400);
+    }
+
+    private void ophiUpdateOscForGamepads() {
+        if (!ophiOscAuto || isFinishing()) return;
+        boolean pad = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+        if (pad == ophiPadPresent) return;
+        ophiPadPresent = pad;
+        if (pad) {
+            if (virtualController != null && virtualController.getControllerMode() == VirtualController.ControllerMode.Active) {
+                virtualController.hide();
+                Toast.makeText(this, "Controller connected \u00B7 touch controls hidden", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            if (virtualController == null) {
+                initVirtualController();
+            } else {
+                virtualController.show();
+            }
+            Toast.makeText(this, "No controller \u00B7 touch controls on", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void initVirtualController(){
@@ -1725,6 +1773,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
             inputManager.unregisterInputDeviceListener(keyboardTranslator);
         }
+        ((InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(ophiPadListener);
 
         if (lowLatencyWifiLock != null) {
             lowLatencyWifiLock.release();
