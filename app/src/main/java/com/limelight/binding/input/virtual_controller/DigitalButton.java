@@ -143,6 +143,12 @@ public class DigitalButton extends VirtualControllerElement {
 
     @Override
     protected void onElementDraw(Canvas canvas) {
+        // OphiStreamer look (round face buttons, pills, icons)
+        if (com.ophistreamer.home.OscSkin.enabled()) {
+            com.ophistreamer.home.OscSkin.drawButton(getContext(), canvas, getWidth(), getHeight(), text, isPressed(),
+                    virtualController.getControllerMode() != VirtualController.ControllerMode.Active);
+            return;
+        }
         // set transparent background
         canvas.drawColor(Color.TRANSPARENT);
 

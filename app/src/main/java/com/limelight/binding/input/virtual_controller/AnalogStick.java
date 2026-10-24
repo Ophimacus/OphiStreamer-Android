@@ -219,6 +219,15 @@ public class AnalogStick extends VirtualControllerElement {
 
     @Override
     protected void onElementDraw(Canvas canvas) {
+        // OphiStreamer look (ring and thumb)
+        if (com.ophistreamer.home.OscSkin.enabled()) {
+            com.ophistreamer.home.OscSkin.drawStick(getContext(), canvas, getWidth(), getHeight(),
+                    radius_complete, position_stick_x, position_stick_y, radius_analog_stick,
+                    stick_state != STICK_STATE.NO_MOVEMENT,
+                    isPressed() && click_state != CLICK_STATE.SINGLE,
+                    virtualController.getControllerMode() != VirtualController.ControllerMode.Active);
+            return;
+        }
         // set transparent background
         canvas.drawColor(Color.TRANSPARENT);
 

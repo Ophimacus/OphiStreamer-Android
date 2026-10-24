@@ -46,6 +46,12 @@ public class DigitalPad extends VirtualControllerElement {
 
     @Override
     protected void onElementDraw(Canvas canvas) {
+        // OphiStreamer look (one-piece D-pad)
+        if (com.ophistreamer.home.OscSkin.enabled()) {
+            com.ophistreamer.home.OscSkin.drawPad(getContext(), canvas, getWidth(), getHeight(), direction,
+                    virtualController.getControllerMode() != VirtualController.ControllerMode.Active);
+            return;
+        }
         // set transparent background
         canvas.drawColor(Color.TRANSPARENT);
 
