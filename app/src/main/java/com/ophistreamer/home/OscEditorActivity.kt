@@ -95,11 +95,18 @@ private fun barParams(activity: Activity) =
 /** Editing over a running stream: the buttons stay where the game shows them, the bar sits on top. */
 object InGameLayoutEdit {
     @JvmStatic
+    private var editing = false
+
+    @JvmStatic
     fun start(activity: Activity, root: FrameLayout, controller: VirtualController, onDone: Runnable) {
+        if (editing) return
+        editing = true
+        val saved = OscLayouts.backup(activity)
         controller.setEditMode(ControllerMode.MoveButtons)
         lateinit var bar: ComposeView
         fun finish() {
             root.removeView(bar)
+            editing = false
             onDone.run()
         }
         bar = ComposeView(activity).apply {
@@ -112,7 +119,8 @@ object InGameLayoutEdit {
                         controller.refreshLayout()
                     },
                     onCancel = {
-                        controller.refreshLayout() // back to what was saved
+                        OscLayouts.restoreBackup(activity, saved) // also undoes a Reset
+                        controller.refreshLayout()
                         finish()
                     },
                     onSave = {
@@ -132,6 +140,7 @@ object InGameLayoutEdit {
  */
 class OscEditorActivity : ComponentActivity() {
     private lateinit var controller: VirtualController
+    private lateinit var saved: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,6 +155,7 @@ class OscEditorActivity : ComponentActivity() {
         root.addView(stage, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // No stream: input goes nowhere, only the layout is edited.
         controller = VirtualController(null, stage, this)
+        saved = OscLayouts.backup(this)
 
         val bar = ComposeView(this).apply {
             setContent {
@@ -156,7 +166,10 @@ class OscEditorActivity : ComponentActivity() {
                         OscLayouts.resetActive(this@OscEditorActivity)
                         controller.refreshLayout()
                     },
-                    onCancel = { finish() },
+                    onCancel = {
+                        OscLayouts.restoreBackup(this@OscEditorActivity, saved) // also undoes a Reset
+                        finish()
+                    },
                     onSave = {
                         controller.saveLayout()
                         finish()

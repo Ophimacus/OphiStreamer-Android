@@ -217,11 +217,12 @@ private fun HomeScreen(
     var repairMsg by remember { mutableStateOf<String?>(null) }
     var repairing by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
+    var liveAddress by remember(pc?.uuid) { mutableStateOf<String?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     // Repair through the OphiStreamer PC app: restarts Apollo, then checks again.
     val onRepair: () -> Unit = {
-        val addr = pc?.address
+        val addr = liveAddress ?: pc?.address
         if (addr != null && !repairing) {
             repairing = true
             repairMsg = "Repairing: restarting Apollo..."
@@ -244,14 +245,25 @@ private fun HomeScreen(
     LaunchedEffect(pc?.address, refreshKey) {
         probed = false
         while (true) {
-            latency = pc?.address?.let { addr -> withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, addr, 47989) } }
-            pcApp = pc?.address?.let { addr -> withContext(Dispatchers.IO) { PhoneLinkClient.status(addr) } }
+            var addr = liveAddress ?: pc?.address
+            latency = addr?.let { a -> withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, a, 47989) } }
+            if (latency == null) {
+                // The hotspot may have a new subnet since pairing: find the PC on it.
+                NetProbe.phoneHotspot(context)?.let { hs -> NetProbe.findSunshineHosts(hs).firstOrNull() }?.let { found ->
+                    liveAddress = found
+                    addr = found
+                    latency = withContext(Dispatchers.IO) { NetProbe.tcpConnectMs(null, found, 47989) }
+                }
+            }
+            pcApp = addr?.let { a -> withContext(Dispatchers.IO) { PhoneLinkClient.status(a) } }
             probed = true
-            if (latency != null || pc?.address == null) break
+            if (latency != null || addr == null) break
             kotlinx.coroutines.delay(4000)
         }
     }
     LaunchedEffect(pc?.uuid) { runCatching { playFocus.requestFocus() } }
+    // Closing the Quick menu removes the focused item; put the controller back on Play.
+    LaunchedEffect(quickOpen) { if (!quickOpen) runCatching { playFocus.requestFocus() } }
 
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
@@ -538,7 +550,7 @@ private fun QuickMenu(onClose: () -> Unit) {
     val screen = remember { DeviceProbe.screen(context) }
     var tab by remember { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
+    LaunchedEffect(tab) { runCatching { firstTab.requestFocus() } }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
 
     Column(
@@ -656,7 +668,7 @@ private fun ControlsTab(prefs: android.content.SharedPreferences) {
         OphiControlRow(
             "Show touch controls",
             when (oscMode) {
-                "auto" -> if (OscMode.hasPhysicalGamepad()) "Hidden: controller connected" else "On: no controller"
+                "auto" -> if (OscMode.hasPhysicalGamepad(context)) "Hidden: controller connected" else "On: no controller"
                 "on" -> "Always on"
                 else -> "Off"
             },

@@ -43,10 +43,10 @@ class ControllerAttachActivity : Activity() {
         val enabled = PreferenceManager.getDefaultSharedPreferences(this).getBoolean(PREF_ENABLED, true)
         // Never interrupt a running stream.
         if (enabled && com.limelight.Game.instance == null) {
-            startActivity(
-                Intent(this, HomeActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            )
+            // Same as tapping the app icon: an open task (setup, a check, pairing) comes forward unchanged.
+            packageManager.getLaunchIntentForPackage(packageName)?.let {
+                startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+            }
         }
         finish()
     }
@@ -55,7 +55,8 @@ class ControllerAttachActivity : Activity() {
 /** Identifies the network the phone streams over, so a new one can prompt a fresh connection check. */
 object NetworkSignature {
     fun current(context: Context): String? {
-        NetProbe.phoneHotspot(context)?.let { return "hotspot:" + it.ip.substringBeforeLast('.') }
+        // Android can give the hotspot a new subnet each time it turns on; it's still the same network.
+        if (NetProbe.phoneHotspot(context) != null) return "hotspot"
         val wifi = NetProbe.wifiStatus(context)
         if (!wifi.connected) return null
         return "wifi:" + (wifi.ssid ?: wifi.gateway ?: "unknown")
@@ -150,6 +151,14 @@ object OscLayouts {
         prefs(context).edit().putString(KEY_NAMES, org.json.JSONArray(rest).toString()).remove(key(name)).apply()
     }
 
+    /** The layout as it is now, to hand back to [restoreBackup] if an edit is cancelled. */
+    fun backup(context: Context): String = snapshot(context)
+
+    fun restoreBackup(context: Context, json: String) {
+        restore(context, json)
+        onEdited(context)
+    }
+
     /** Puts the active layout back to Artemis's default positions. */
     fun resetActive(context: Context) {
         restore(context, "{}")
@@ -205,5 +214,12 @@ object OscMode {
 
     /** A real controller (USB or Bluetooth), not the phone's own buttons. */
     @JvmStatic
-    fun hasPhysicalGamepad(): Boolean = com.ophistreamer.linkcheck.DeviceProbe.controllers().any { it.external }
+    fun hasPhysicalGamepad(context: Context): Boolean {
+        if (com.ophistreamer.linkcheck.DeviceProbe.controllers().any { it.external }) return true
+        val usb = context.getSystemService(Context.USB_SERVICE) as? android.hardware.usb.UsbManager ?: return false
+        return usb.deviceList.values.any { it.vendorId in PAD_VENDORS }
+    }
+
+    // GameSir, Microsoft, Sony, Nintendo, 8BitDo, PDP, PowerA, Hori, Logitech, Razer
+    private val PAD_VENDORS = setOf(0x3537, 0x045E, 0x054C, 0x057E, 0x2DC8, 0x0E6F, 0x24C6, 0x0F0D, 0x046D, 0x1532)
 }

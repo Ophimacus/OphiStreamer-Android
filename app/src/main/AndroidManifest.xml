@@ -63,7 +63,8 @@
             android:name="com.ophistreamer.linkcheck.LinkCheckActivity"
             android:label="Connection"
             android:exported="false"
-            android:theme="@android:style/Theme.Material.NoActionBar" />
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation" />
 
         <provider
             android:name=".PosterContentProvider"

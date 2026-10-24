@@ -111,6 +111,7 @@ private fun Onboarding(onFinish: (runCheck: Boolean) -> Unit) {
                 val saved = Recents.savedPcs(context)
                 paired = saved.any { it.paired }
                 val addr = saved.firstOrNull()?.address
+                    ?: pcAddress
                     ?: hs?.let { NetProbe.findSunshineHosts(it).firstOrNull() }
                 pcAddress = addr
                 pcAppOk = addr != null && withContext(Dispatchers.IO) { PhoneLinkClient.status(addr) } != null

@@ -842,7 +842,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         if (prefConfig.onscreenController) {
             // create virtual onscreen controller
             if (ophiOscAuto) {
-                ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+                ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad(this);
                 if (!ophiPadPresent) {
                     initVirtualController();
                 }
@@ -1126,7 +1126,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         String mode = com.ophistreamer.home.OscMode.current(this);
         if (mode.equals("off")) return false;
         if (mode.equals("on")) return true;
-        return !com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+        return !com.ophistreamer.home.OscMode.hasPhysicalGamepad(this);
     }
 
     private void ophiSyncOscVisibility() {
@@ -1148,7 +1148,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         im.unregisterInputDeviceListener(ophiPadListener);
         ophiOscAuto = mode.equals("auto");
         prefConfig.onscreenController = !mode.equals("off");
-        ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+        ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad(this);
         if (ophiOscAuto) {
             im.registerInputDeviceListener(ophiPadListener, null);
         }
@@ -1198,7 +1198,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     private void ophiUpdateOscForGamepads() {
         if (!ophiOscAuto || isFinishing()) return;
-        boolean pad = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+        boolean pad = com.ophistreamer.home.OscMode.hasPhysicalGamepad(this);
         if (pad == ophiPadPresent) return;
         ophiPadPresent = pad;
         if (pad) {
@@ -1264,8 +1264,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         String name = com.ophistreamer.home.OscLayouts.next(this);
         if (virtualController != null) {
             virtualController.refreshLayout();
-            virtualController.show();
         }
+        ophiSyncOscVisibility();
         Toast.makeText(this, "Controls layout: " + name, Toast.LENGTH_SHORT).show();
     }
 

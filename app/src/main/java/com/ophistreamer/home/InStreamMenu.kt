@@ -118,7 +118,7 @@ object InStreamMenu {
 private fun Panel(game: Game, close: () -> Unit, after: (() -> Unit) -> Unit, more: Runnable) {
     var tab by remember { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
+    LaunchedEffect(tab) { runCatching { firstTab.requestFocus() } }
 
     Row(Modifier.fillMaxSize()) {
         // The game stays visible on the left, slightly dimmed; tapping it resumes.
@@ -204,7 +204,7 @@ private fun ControlsTab(game: Game, after: (() -> Unit) -> Unit) {
         OphiControlRow(
             "Show touch controls",
             when (mode) {
-                "auto" -> if (OscMode.hasPhysicalGamepad()) "Hidden: controller connected" else "On: no controller"
+                "auto" -> if (OscMode.hasPhysicalGamepad(game)) "Hidden: controller connected" else "On: no controller"
                 "on" -> "Always on"
                 else -> "Off"
             },
@@ -220,7 +220,7 @@ private fun ControlsTab(game: Game, after: (() -> Unit) -> Unit) {
             OphiSegmented(OscTheme.ids, theme, { OscTheme.label(it) }, Modifier.fillMaxWidth()) {
                 theme = it
                 prefs.edit().putString(OscTheme.PREF, it).apply()
-                game.ophiSetOscOpacity(opacity)
+                game.ophiRefreshOsc()
             }
         }
         OphiDividerLine()
