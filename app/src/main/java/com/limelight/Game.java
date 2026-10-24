@@ -1121,6 +1121,76 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         @Override public void onInputDeviceChanged(int id) { ophiSchedulePadCheck(); }
     };
 
+    /** Whether the touch controls should be on screen right now, for the chosen mode. */
+    private boolean ophiOscShouldShow() {
+        String mode = com.ophistreamer.home.OscMode.current(this);
+        if (mode.equals("off")) return false;
+        if (mode.equals("on")) return true;
+        return !com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+    }
+
+    private void ophiSyncOscVisibility() {
+        if (ophiOscShouldShow()) {
+            if (virtualController == null) {
+                initVirtualController();
+            } else {
+                virtualController.show();
+            }
+        } else if (virtualController != null) {
+            virtualController.hide();
+        }
+    }
+
+    /** In-stream menu changed Auto / Always / Off: apply it to the running game. */
+    public void ophiApplyOscMode() {
+        String mode = com.ophistreamer.home.OscMode.current(this);
+        InputManager im = (InputManager) getSystemService(Context.INPUT_SERVICE);
+        im.unregisterInputDeviceListener(ophiPadListener);
+        ophiOscAuto = mode.equals("auto");
+        prefConfig.onscreenController = !mode.equals("off");
+        ophiPadPresent = com.ophistreamer.home.OscMode.hasPhysicalGamepad();
+        if (ophiOscAuto) {
+            im.registerInputDeviceListener(ophiPadListener, null);
+        }
+        ophiSyncOscVisibility();
+    }
+
+    /** Theme or opacity changed: recolour the buttons in place. */
+    public void ophiSetOscOpacity(int opacity) {
+        if (virtualController != null) {
+            virtualController.setOpacity(opacity);
+        }
+    }
+
+    /** Another saved layout was picked: rebuild the buttons from it. */
+    public void ophiRefreshOsc() {
+        if (virtualController != null) {
+            virtualController.refreshLayout();
+        }
+        ophiSyncOscVisibility();
+    }
+
+    /** Edit the layout over the running game, with the SteamOS edit bar. */
+    public void ophiStartLayoutEdit() {
+        if (virtualController == null) {
+            initVirtualController();
+        }
+        virtualController.show();
+        com.ophistreamer.home.InGameLayoutEdit.start(this, (FrameLayout) rootView, virtualController, () -> {
+            virtualController.setEditMode(VirtualController.ControllerMode.Active);
+            ophiSyncOscVisibility();
+        });
+    }
+
+    public String ophiStreamSummary() {
+        return prefConfig.width + "\u00D7" + prefConfig.height + " \u00B7 " + Math.round(prefConfig.fps) + " FPS \u00B7 "
+                + (prefConfig.bitrate / 1000) + " Mbps";
+    }
+
+    public boolean ophiPerfOverlayOn() {
+        return prefConfig.enablePerfOverlay;
+    }
+
     private void ophiSchedulePadCheck() {
         getWindow().getDecorView().removeCallbacks(ophiPadCheck);
         getWindow().getDecorView().postDelayed(ophiPadCheck, 400);
@@ -1774,6 +1844,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             inputManager.unregisterInputDeviceListener(keyboardTranslator);
         }
         ((InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(ophiPadListener);
+        com.ophistreamer.home.InStreamMenu.hide();
 
         if (lowLatencyWifiLock != null) {
             lowLatencyWifiLock.release();
@@ -4335,12 +4406,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             ExternalDisplayControlActivity.toggleGameMenu();
         } else {
             if (gameMenuCallbacks != null) {
-                gameMenuCallbacks.showMenu(device);
+                // OphiStreamer: SteamOS-style menu; Artemis's full menu is under Display > All options.
+                com.ophistreamer.home.InStreamMenu.show(this, () -> gameMenuCallbacks.showMenu(device));
             }
         }
     }
 
     public void hideGameMenu() {
+        com.ophistreamer.home.InStreamMenu.hide();
         if (gameMenuCallbacks != null) {
             gameMenuCallbacks.hideMenu();
         }

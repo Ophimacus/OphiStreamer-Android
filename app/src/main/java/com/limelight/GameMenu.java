@@ -344,6 +344,6 @@ public class GameMenu implements Game.GameMenuCallbacks {
 
     @Override
     public boolean isMenuOpen() {
-        return currentDialog != null && currentDialog.isShowing();
+        return (currentDialog != null && currentDialog.isShowing()) || com.ophistreamer.home.InStreamMenu.isOpen();
     }
 }
