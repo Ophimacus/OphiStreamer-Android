@@ -20,6 +20,8 @@ data class PcStatus(
     val avgLatencyMs: Double,
     val spikes: Int,
     val drops: Int,
+    val coopEnabled: Boolean = false,
+    val activeClients: Int? = null,
 )
 
 /** One speed-test step: PC sends UDP at [mbps] to the phone, the phone counts what arrives. */
@@ -48,6 +50,8 @@ object PhoneLinkClient {
                 avgLatencyMs = lat?.optDouble("avgMs") ?: 0.0,
                 spikes = lat?.optInt("spikes") ?: 0,
                 drops = o.optInt("drops"),
+                coopEnabled = o.optBoolean("coopEnabled"),
+                activeClients = if (o.has("activeClients") && !o.isNull("activeClients")) o.optInt("activeClients") else null,
             )
         } catch (e: Exception) {
             null

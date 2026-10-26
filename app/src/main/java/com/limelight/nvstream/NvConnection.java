@@ -51,6 +51,9 @@ public class NvConnection {
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
+    private boolean coopJoinOnly;
+
+    public void setCoopJoinOnly(boolean enabled) { coopJoinOnly = enabled; }
 
     public NvConnection(Context appContext, ComputerDetails.AddressTuple host, int httpsPort, String uniqueId, StreamConfiguration config, LimelightCryptoProvider cryptoProvider, X509Certificate serverCert)
     {
@@ -310,6 +313,12 @@ public class NvConnection {
             }
         }
         
+        // A co-op guest must never launch or quit an app if the host changes games during connection.
+        if (coopJoinOnly && !com.ophistreamer.home.CoopPolicy.canJoin(
+                h.getCurrentGame(serverInfo), h.getCurrentGameUUID(serverInfo), app.getAppId(), app.getAppUUID())) {
+            context.connListener.displayMessage("The host game changed or closed. Return Home and join again.");
+            return false;
+        }
         // If there's a game running, resume it
         if (h.getCurrentGame(serverInfo) != 0 || (h.getCurrentGameUUID(serverInfo) != null && !h.getCurrentGameUUID(serverInfo).isEmpty())) {
             try {

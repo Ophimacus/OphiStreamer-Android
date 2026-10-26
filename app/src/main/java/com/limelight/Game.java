@@ -231,6 +231,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private TextView performanceOverlayBig;
 
     private MediaCodecDecoderRenderer decoderRenderer;
+    private com.ophistreamer.home.SessionLearning.Session learningSession;
     private boolean reportedCrash;
 
     private WifiManager.WifiLock highPerfWifiLock;
@@ -352,6 +353,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
+        learningSession = com.ophistreamer.home.SessionLearning.prepareStreamPreferences(this, getIntent(), prefConfig);
+        com.ophistreamer.home.Coop.applyStreamPreferences(this, prefConfig);
         // OphiStreamer: in Auto mode the on-screen controls exist for every stream and hide while a controller is connected.
         ophiOscAuto = com.ophistreamer.home.OscMode.isAuto(this);
         if (ophiOscAuto) {
@@ -674,7 +677,15 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 willStreamHdr,
                 shouldInvertDecoderResolution,
                 glPrefs.glRenderer,
-                this);
+                this) {
+            @Override
+            public int submitDecodeUnit(byte[] data, int length, int type, int frameNumber,
+                    int frameType, char hostLatency, long receiveTimeMs, long enqueueTimeMs) {
+                if (learningSession != null) learningSession.frame(frameNumber);
+                return super.submitDecodeUnit(data, length, type, frameNumber, frameType,
+                        hostLatency, receiveTimeMs, enqueueTimeMs);
+            }
+        };
 
 // --- Force tight thresholds (prefConfig.forceTightThresholds) ---
         try {
@@ -807,11 +818,17 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
                 .build();
 
+        if (learningSession != null) {
+            learningSession.configure(prefConfig, displayWidth, displayHeight, chosenFrameRate,
+                    isMetered ? prefConfig.meteredBitrate : prefConfig.bitrate);
+        }
+
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
+        conn.setCoopJoinOnly(com.ophistreamer.home.Coop.isGuestStream(getIntent()));
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator(prefConfig);
 
@@ -3583,6 +3600,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     }
 
     private void stopConnection() {
+        if (learningSession != null) learningSession.end();
         if (connecting || connected) {
             connecting = connected = false;
             updatePipAutoEnter();
@@ -3600,7 +3618,11 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             new Thread() {
                 public void run() {
                     conn.stop();
-                    if (httpConn != null && quitOnStop) {
+                    if (learningSession != null) {
+                        learningSession.finish(decoderRenderer.getAverageDecoderLatency(),
+                                decoderRenderer.getActiveVideoFormat());
+                    }
+                    if (httpConn != null && quitOnStop && !com.ophistreamer.home.Coop.isGuestStream(getIntent())) {
                         try {
                             sleep(1000);
                             httpConn.quitApp();
@@ -3692,6 +3714,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     @Override
     public void connectionTerminated(final int errorCode) {
+        if (learningSession != null) learningSession.end(errorCode);
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
@@ -3815,6 +3838,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     @Override
     public void connectionStarted() {
+        if (learningSession != null) learningSession.start();
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -4378,6 +4402,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     }
 
     public void quit() {
+        if (com.ophistreamer.home.Coop.isGuestStream(getIntent())) {
+            Toast.makeText(this, "Only the host phone can close the shared game", Toast.LENGTH_SHORT).show();
+            return;
+        }
         Context context;
         if (isOnExternalDisplay() && ExternalDisplayControlActivity.instance != null) {
             context = ExternalDisplayControlActivity.instance;

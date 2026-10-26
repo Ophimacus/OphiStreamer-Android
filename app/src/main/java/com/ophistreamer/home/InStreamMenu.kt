@@ -174,14 +174,14 @@ private fun Panel(game: Game, close: () -> Unit, after: (() -> Unit) -> Unit, mo
 private fun GameTab(game: Game, close: () -> Unit, after: (() -> Unit) -> Unit) {
     OphiPrimaryButton("Resume", height = 48.dp, onClick = close)
     OphiSection("Session") {
-        OphiLinkRow("Show keyboard") { after { game.toggleKeyboard() } }
+        if (!Coop.isGuestStream(game.intent)) OphiLinkRow("Show keyboard") { after { game.toggleKeyboard() } }
         OphiDividerLine()
-        OphiLinkRow("Send clipboard to PC") { after { game.sendClipboard(true) } }
+        if (!Coop.isGuestStream(game.intent)) OphiLinkRow("Send clipboard to PC") { after { game.sendClipboard(true) } }
     }
     OphiSection("Leave") {
         OphiLinkRow("Disconnect", "Game keeps running") { after { game.disconnect() } }
         OphiDividerLine()
-        Row(
+        if (!Coop.isGuestStream(game.intent)) Row(
             Modifier.fillMaxWidth().height(52.dp).focusRing(OphiCardShape).clickable { after { game.quit() } }.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -266,7 +266,7 @@ private fun DisplayTab(game: Game, after: (() -> Unit) -> Unit, more: Runnable) 
         OphiDividerLine()
         OphiLinkRow("Rotate screen") { after { game.rotateScreen() } }
     }
-    OphiSection("More") {
+    if (!Coop.isGuestStream(game.intent)) OphiSection("More") {
         OphiLinkRow("All options", "Keys, mouse, PC commands") { after { more.run() } }
     }
     Text(

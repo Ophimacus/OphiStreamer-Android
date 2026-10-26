@@ -103,6 +103,7 @@ private fun Onboarding(onFinish: (runCheck: Boolean) -> Unit) {
     var pcAddress by remember { mutableStateOf<String?>(null) }
     var pcAppOk by remember { mutableStateOf(false) }
     var paired by remember { mutableStateOf(false) }
+    var guest by remember { mutableStateOf(Coop.isGuest(context)) }
     LaunchedEffect(step) {
         while (true) {
             val hs = NetProbe.phoneHotspot(context)
@@ -137,13 +138,20 @@ private fun Onboarding(onFinish: (runCheck: Boolean) -> Unit) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     when (step) {
                         0 -> {
-                            Text("Turn on your phone hotspot", color = OphiText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(if (guest) "Join the host phone's hotspot" else "Turn on your phone hotspot", color = OphiText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            com.ophistreamer.ui.OphiToggleRow("Joining another player?", guest) {
+                                guest = it
+                                Coop.setGuest(context, it)
+                            }
                             Text(
-                                "Your phone becomes the network, so it works anywhere. Set the band to 5 GHz for the smoothest stream: Personal hotspot > More > AP band > 5 GHz.",
+                                if (guest) "Keep your own hotspot off. Join the first phone's 5 GHz Wi-Fi network, then pair with the same PC."
+                                else "Your phone becomes the network, so it works anywhere. Set the band to 5 GHz for the smoothest stream: Personal hotspot > More > AP band > 5 GHz.",
                                 color = OphiMuted, fontSize = 14.sp,
                             )
-                            OphiPill(if (hotspotOn) "Hotspot is on" else "Hotspot is off", if (hotspotOn) OphiGood else OphiWarn)
-                            OphiSecondaryButton("Open hotspot settings") { openHotspotSettings(context) }
+                            if (!guest) OphiPill(if (hotspotOn) "Hotspot is on" else "Hotspot is off", if (hotspotOn) OphiGood else OphiWarn)
+                            OphiSecondaryButton(if (guest) "Open Wi-Fi settings" else "Open hotspot settings") {
+                                if (guest) context.startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) else openHotspotSettings(context)
+                            }
                         }
                         1 -> {
                             Text("Get your laptop ready", color = OphiText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -160,7 +168,8 @@ private fun Onboarding(onFinish: (runCheck: Boolean) -> Unit) {
                             }
                             if (!paired) {
                                 OphiSecondaryButton("Pair my laptop") { context.startActivity(Intent(context, PcView::class.java)) }
-                                Text("Tap your laptop in the list. The PIN is entered for you when OphiStreamer runs on it.", color = OphiMuted, fontSize = 12.sp)
+                                Text(if (guest) "Pair this phone using the PIN in Apollo's web panel, then grant viewing and controller input. The host phone starts the game first."
+                                    else "Tap your laptop in the list. The PIN is entered for you when OphiStreamer runs on it.", color = OphiMuted, fontSize = 12.sp)
                             }
                         }
                         else -> {

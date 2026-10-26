@@ -406,6 +406,11 @@ private fun Hero(
         val reachable = latency != null && startStatus != StartStatus.Offline
 
         Text(pc.name, color = OphiText, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (Coop.isGuest(context)) {
+            Text("Co-op guest · joins the host's game", color = OphiAccent, fontSize = 12.sp)
+        } else if (pcApp?.coopEnabled == true) {
+            Text("Co-op enabled · ${pcApp.activeClients?.toString() ?: "?"}/2 streams", color = OphiAccent, fontSize = 12.sp)
+        }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(9.dp).background(statusColor, CircleShape))
@@ -438,6 +443,7 @@ private fun Hero(
             else -> OphiPrimaryButton(
                 text = when {
                     connecting -> "Connecting..."
+                    Coop.isGuest(context) -> "Join game"
                     lastGame != null && lastGame.appName.isNotBlank() -> "Play ${lastGame.appName}"
                     else -> "Play"
                 },
@@ -738,6 +744,22 @@ private fun AppTab(prefs: android.content.SharedPreferences) {
     val context = LocalContext.current
     var autoResume by remember { mutableStateOf(AutoResume.isEnabled(context)) }
     var openOnPad by remember { mutableStateOf(prefs.getBoolean(ControllerAttachActivity.PREF_ENABLED, true)) }
+    var guest by remember { mutableStateOf(Coop.isGuest(context)) }
+
+    OphiSection("Two-phone co-op") {
+        OphiToggleRow("This phone joins another player", guest, "Start the game on the host phone first") {
+            guest = it
+            Coop.setGuest(context, it)
+        }
+    }
+    if (guest) Text(
+        "Join the host phone's 5 GHz hotspot. Enable co-op on the PC and pair this phone in Apollo. " +
+            "Allow viewing and controller input there; the guest cannot close the shared game. " +
+            "Controller slots are assigned by Apollo and the game, not by this switch.",
+        color = OphiMuted, fontSize = 12.sp,
+    )
+    val learningPc = remember { Recents.all(context).firstOrNull()?.pcUuid ?: Recents.savedPcs(context).firstOrNull()?.uuid.orEmpty() }
+    SessionLearningSettings(context, learningPc)
 
     OphiSection("Behaviour") {
         OphiToggleRow("Auto-resume after drops", autoResume, "Reconnects to the same game by itself") {

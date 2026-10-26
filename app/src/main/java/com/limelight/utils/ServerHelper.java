@@ -113,6 +113,14 @@ public class ServerHelper {
         gameIntent.putExtra(Game.EXTRA_PC_UUID, computer.uuid);
         gameIntent.putExtra(Game.EXTRA_PC_NAME, computer.name);
         gameIntent.putExtra(Game.EXTRA_VDISPLAY, withVDisplay);
+        gameIntent.putExtra(com.ophistreamer.home.Coop.EXTRA_SHARED,
+                com.ophistreamer.home.Coop.isSharedPc(parent, computer.uuid));
+        // Also protect launches made from Artemis's full app list or a shortcut.
+        if (com.ophistreamer.home.Coop.isGuest(parent)) {
+            gameIntent.putExtra(com.ophistreamer.home.Coop.EXTRA_GUEST, true);
+            gameIntent.putExtra(com.ophistreamer.home.Coop.EXTRA_SHARED, true);
+            gameIntent.putExtra(Game.EXTRA_VDISPLAY, false);
+        }
         gameIntent.putExtra(Game.EXTRA_SERVER_COMMANDS, (ArrayList<String>) computer.serverCommands);
 
         // OphiStreamer: remember this game for the home screen's PLAY button and recent shelf.
@@ -196,6 +204,12 @@ public class ServerHelper {
                               final Runnable onComplete,
                               final Runnable onFail
     ) {
+        if (com.ophistreamer.home.Coop.isGuest(parent)) {
+            parent.runOnUiThread(() -> Toast.makeText(parent,
+                    "Only the host phone can close the shared game", Toast.LENGTH_SHORT).show());
+            if (onFail != null) onFail.run();
+            return;
+        }
         parent.runOnUiThread(() -> Toast.makeText(parent, parent.getResources().getString(R.string.applist_quit_app) + " " + appName + "...", Toast.LENGTH_SHORT).show());
         new Thread(new Runnable() {
             @Override
