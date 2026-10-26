@@ -36,6 +36,7 @@ object Coop {
         prefs.width = 1280
         prefs.height = 720
         prefs.fps = minOf(prefs.fps, 60f)
+        prefs.framePacingWarpFactor = 0 // Advanced solo frame-warp settings must not exceed the shared ceiling.
         prefs.bitrate = minOf(prefs.bitrate, 8000)
         prefs.meteredBitrate = minOf(prefs.meteredBitrate, 8000)
         prefs.resolutionScaleFactor = 100

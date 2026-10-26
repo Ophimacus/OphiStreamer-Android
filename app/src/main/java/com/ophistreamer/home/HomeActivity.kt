@@ -409,7 +409,7 @@ private fun Hero(
         if (Coop.isGuest(context)) {
             Text("Co-op guest · joins the host's game", color = OphiAccent, fontSize = 12.sp)
         } else if (pcApp?.coopEnabled == true) {
-            Text("Co-op enabled · ${pcApp.activeClients?.toString() ?: "?"}/2 streams", color = OphiAccent, fontSize = 12.sp)
+            Text("Co-op enabled · ${pcApp.activeClients?.toString() ?: "?"} connected clients", color = OphiAccent, fontSize = 12.sp)
         }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -419,7 +419,8 @@ private fun Hero(
         if (!reachable && !connecting && probed && pc.paired) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "Turn on your phone hotspot and connect the laptop to it. This updates by itself.",
+                if (Coop.isGuest(context)) "Join the host phone's Wi-Fi and keep the laptop connected there. This updates by itself."
+                else "Turn on your phone hotspot and connect the laptop to it. This updates by itself.",
                 color = OphiMuted, fontSize = 13.sp,
             )
         }

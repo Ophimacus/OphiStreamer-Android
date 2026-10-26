@@ -1,5 +1,6 @@
 package com.ophistreamer.home
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.*
@@ -12,7 +13,7 @@ import org.robolectric.shadows.ShadowSystemClock
 import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], application = Application::class)
 class SessionLearningStorageTest {
     private lateinit var context: Context
     private val scope = SessionLearning.Scope("pc", "network-hash", SessionLearning.Mode.SOLO, false)
