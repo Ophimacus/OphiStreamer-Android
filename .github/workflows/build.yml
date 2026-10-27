@@ -45,7 +45,7 @@ jobs:
           OPHI_KEY_PASSWORD: ${{ secrets.OPHI_KEY_PASSWORD }}
         run: ./gradlew assembleNonRoot_gameRelease --no-daemon
 
-      - name: Test co-op and session learning policies
+      - name: Test co-op, player views, controls and session learning
         run: ./gradlew testNonRoot_gameDebugUnitTest --tests 'com.ophistreamer.home.*' --no-daemon
 
       - name: Collect APK
