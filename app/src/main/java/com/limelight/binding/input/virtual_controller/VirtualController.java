@@ -126,6 +126,18 @@ public class VirtualController {
     }
 
     public void hide() {
+        // A GameSir can be plugged in while a touch button/stick is held. Release touch
+        // state before hiding, so it cannot keep the guest's virtual gamepad stuck.
+        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_CANCEL, 0, 0, 0);
+        for (VirtualControllerElement element : elements) element.dispatchTouchEvent(cancel);
+        cancel.recycle();
+        inputContext.inputMap = 0;
+        inputContext.leftTrigger = inputContext.rightTrigger = 0;
+        inputContext.leftStickX = inputContext.leftStickY = inputContext.rightStickX = inputContext.rightStickY = 0;
+        handler.removeCallbacks(delayedRetransmitRunnable);
+        sendControllerInputContextInternal();
+        handler.postDelayed(delayedRetransmitRunnable, 25);
+        handler.postDelayed(delayedRetransmitRunnable, 75);
         for (VirtualControllerElement element : elements) {
             element.setVisibility(View.GONE);
         }

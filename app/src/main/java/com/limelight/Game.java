@@ -202,6 +202,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
     private boolean isPanZoomMode = false;
+    private String ophiPlayerView = "full";
+    private String ophiPlayerSplit = "side";
+    private boolean ophiFullPictureForMenus;
     private boolean synthClickPending = false;
     private boolean pointerSwiping = false;
     private boolean waitingForAllModifiersUp = false;
@@ -467,6 +470,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         // Listen for non-touch events on the game surface
         streamContainer = findViewById(R.id.streamContainer);
         streamContainer.init(this, prefConfig);
+        streamContainer.setPlayerSourceAspect((double) displayWidth / displayHeight);
         streamContainer.setOnGenericMotionListener(this);
         streamContainer.setOnKeyListener(this);
         streamContainer.setInputCallbacks(this);
@@ -496,7 +500,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         );
 
         // Restore previous zoom & pan if enabled and saved
-        if (prefConfig.rememberZoomPan) {
+        com.ophistreamer.home.PlayerView.Selection playerView = com.ophistreamer.home.PlayerView.load(this, getIntent());
+        if (!playerView.getPlayer().equals("full") && streamContainer.supportsPlayerView()) {
+            ophiPlayerView = playerView.getPlayer();
+            ophiPlayerSplit = playerView.getSplit();
+            streamContainer.setPlayerView(ophiPlayerView, ophiPlayerSplit);
+        } else if (prefConfig.rememberZoomPan) {
             streamContainer.post(() -> panZoomHandler.setInitialZoomAndPan(
                     prefConfig.zoomScale,
                     prefConfig.panOffsetX,
@@ -1208,6 +1217,32 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         return prefConfig.enablePerfOverlay;
     }
 
+    public String ophiPlayerView() { return ophiPlayerView; }
+    public String ophiPlayerSplit() { return ophiPlayerSplit; }
+    public boolean ophiPlayerViewSupported() { return streamContainer.supportsPlayerView(); }
+    public boolean ophiFullPictureForMenus() { return ophiFullPictureForMenus; }
+
+    public void ophiSetPlayerView(String player, String split) {
+        if (!ophiPlayerViewSupported()) return;
+        com.ophistreamer.home.PlayerView.save(this, getIntent(), player, split);
+        ophiPlayerView = player;
+        ophiPlayerSplit = split;
+        ophiFullPictureForMenus = false;
+        ophiApplyPlayerView();
+    }
+
+    public void ophiToggleFullPictureForMenus() {
+        ophiFullPictureForMenus = !ophiFullPictureForMenus;
+        ophiApplyPlayerView();
+    }
+
+    private void ophiApplyPlayerView() {
+        isPanZoomMode = false;
+        panZoomHandler.setInitialZoomAndPan(1, 0, 0);
+        streamContainer.setPlayerView(ophiFullPictureForMenus ? "full" : ophiPlayerView, ophiPlayerSplit);
+        updateZoomButtonAppearance();
+    }
+
     private void ophiSchedulePadCheck() {
         getWindow().getDecorView().removeCallbacks(ophiPadCheck);
         getWindow().getDecorView().postDelayed(ophiPadCheck, 400);
@@ -1871,7 +1906,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         }
 
         // Save zoom/pan before other cleanup
-        if (prefConfig != null && prefConfig.rememberZoomPan && panZoomHandler != null) {
+        if (prefConfig != null && prefConfig.rememberZoomPan && panZoomHandler != null && ophiPlayerView.equals("full")) {
             SharedPreferences basePrefs = PreferenceManager.getDefaultSharedPreferences(this);
             basePrefs.edit()
                     .putFloat("number_zoom_scale", panZoomHandler.getScaleFactor())
@@ -3573,6 +3608,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
+        // The cropped picture is gamepad-only. Do not send mouse taps at incorrect full-frame coordinates.
+        // OSC elements have their own touch listeners and still send all gamepad buttons/sticks.
+        if (streamContainer != null && streamContainer.isPlayerViewActive()) return true;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             // Tell the OS not to buffer input events for us
             //
@@ -3966,7 +4004,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         LimeLog.info("surfaceChanged-->"+width+" x "+height + "----"+displayWidth+" x "+displayHeight);
 
-        panZoomHandler.handleSurfaceChange();
+        if (!streamContainer.isPlayerViewActive()) panZoomHandler.handleSurfaceChange();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!isInPictureInPictureMode()) {
@@ -4173,6 +4211,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         return isPanZoomMode;
     }
     public void toggleZoomMode() {
+        if (!ophiPlayerView.equals("full")) {
+            Toast.makeText(this, "Select Full picture in Display before using free zoom", Toast.LENGTH_SHORT).show();
+            return;
+        }
         this.isPanZoomMode = !this.isPanZoomMode;
         if (this.isPanZoomMode) {
             Toast.makeText(this, getString(R.string.pan_zoom_mode_enabled), Toast.LENGTH_SHORT).show();

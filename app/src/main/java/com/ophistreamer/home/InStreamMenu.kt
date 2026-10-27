@@ -200,6 +200,11 @@ private fun ControlsTab(game: Game, after: (() -> Unit) -> Unit) {
     var layouts by remember { mutableStateOf(OscLayouts.names(game)) }
     var layout by remember { mutableStateOf(OscLayouts.active(game)) }
 
+    Text(if (Coop.isGuestStream(game.intent))
+        "This phone has its own gamepad input. Use a USB/Bluetooth controller or the touch buttons below. Join the second player inside the game."
+        else "Each phone can use its own controller or touch buttons. Player order is assigned by Apollo and the game.",
+        color = OphiMuted, fontSize = 12.sp)
+
     OphiSection("Touch controls") {
         OphiControlRow(
             "Show touch controls",
@@ -252,6 +257,33 @@ private fun ControlsTab(game: Game, after: (() -> Unit) -> Unit) {
 private fun DisplayTab(game: Game, after: (() -> Unit) -> Unit, more: Runnable) {
     var overlay by remember { mutableStateOf(game.ophiPerfOverlayOn()) }
     var zoom by remember { mutableStateOf(game.isZoomModeEnabled) }
+    var player by remember { mutableStateOf(game.ophiPlayerView()) }
+    var split by remember { mutableStateOf(game.ophiPlayerSplit()) }
+    var menuPicture by remember { mutableStateOf(game.ophiFullPictureForMenus()) }
+
+    if (game.ophiPlayerViewSupported()) OphiSection("Player view") {
+        OphiControlRow("Picture on this phone", "Saved for this PC and streamed app") {
+            OphiSegmented(PlayerView.players, player, { PlayerView.playerLabel(it) }, Modifier.fillMaxWidth()) {
+                player = it; menuPicture = false; zoom = false
+                game.ophiSetPlayerView(player, split)
+            }
+        }
+        if (player != "full") {
+            OphiDividerLine()
+            OphiControlRow("Game's split-screen layout", "Player 1 = left/top · Player 2 = right/bottom") {
+                OphiSegmented(PlayerView.splits, split, { PlayerView.splitLabel(it) }, Modifier.fillMaxWidth()) {
+                    split = it; menuPicture = false
+                    game.ophiSetPlayerView(player, split)
+                }
+            }
+            OphiDividerLine()
+            OphiLinkRow(if (menuPicture) "Return to my player view" else "Show full picture for menus", "Keeps your saved view") {
+                game.ophiToggleFullPictureForMenus(); menuPicture = game.ophiFullPictureForMenus()
+            }
+        }
+    } else Text("Player views require Android 7+ and the standard 2D renderer.", color = OphiMuted, fontSize = 12.sp)
+    Text("For split-screen games such as Sparking! ZERO. This selects an existing picture section; it cannot create another camera. Use Full picture for shared-camera games. Fits without stretching; black bars may remain.",
+        color = OphiMuted, fontSize = 12.sp)
 
     OphiSection("Screen") {
         OphiToggleRow("Performance overlay", overlay, "Frame time, delay and bitrate") {
@@ -259,7 +291,7 @@ private fun DisplayTab(game: Game, after: (() -> Unit) -> Unit, more: Runnable) 
             game.toggleHUD()
         }
         OphiDividerLine()
-        OphiToggleRow("Zoom mode", zoom, "Pinch and pan the picture") {
+        if (player == "full") OphiToggleRow("Zoom mode", zoom, "Pinch and pan the picture") {
             zoom = it
             game.toggleZoomMode()
         }

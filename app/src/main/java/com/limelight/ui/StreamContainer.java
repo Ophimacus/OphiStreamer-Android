@@ -52,6 +52,29 @@ public class StreamContainer extends FrameLayout implements SurfaceHolder.Callba
 
     private double desiredAspectRatio;
     private boolean fillDisplay = false;
+    private float[] playerRegion = {0, 0, 1, 1};
+    private int[] playerLayout;
+    private double playerSourceAspect;
+
+    public boolean supportsPlayerView() {
+        return android.os.Build.VERSION.SDK_INT >= 24 && renderMode == StreamMode.MODE_2D;
+    }
+
+    public boolean isPlayerViewActive() { return playerRegion[2] < 1 || playerRegion[3] < 1; }
+
+    public void setPlayerSourceAspect(double aspect) { playerSourceAspect = aspect; }
+
+    public void setPlayerView(String player, String split) {
+        playerRegion = com.ophistreamer.home.PlayerViewGeometry.region(supportsPlayerView() ? player : "full", split);
+        setClipChildren(true);
+        setClipToPadding(true);
+        if (mSurfaceView != null) {
+            mSurfaceView.setScaleX(1); mSurfaceView.setScaleY(1);
+            mSurfaceView.setTranslationX(0); mSurfaceView.setTranslationY(0);
+            mSurfaceView.setClipBounds(null);
+        }
+        requestLayout();
+    }
 
     private boolean isSurfaceReady = false;
 
@@ -69,6 +92,7 @@ public class StreamContainer extends FrameLayout implements SurfaceHolder.Callba
 
         this.game = game;
         this.prefConfig = prefConfig;
+        this.playerSourceAspect = (double) prefConfig.width / prefConfig.height;
         this.renderMode = mapIntToStreamMode(prefConfig.renderMode);
 
         Stereo3DRenderer.isMovieMode = renderMode == StreamMode.MODE_AI_3D_MOVIE;
@@ -112,6 +136,15 @@ public class StreamContainer extends FrameLayout implements SurfaceHolder.Callba
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (isPlayerViewActive() && supportsPlayerView()) {
+            playerLayout = com.ophistreamer.home.PlayerViewGeometry.fit(MeasureSpec.getSize(widthMeasureSpec),
+                    MeasureSpec.getSize(heightMeasureSpec), desiredAspectRatio > 0 ? desiredAspectRatio : playerSourceAspect, playerRegion);
+            setMeasuredDimension(playerLayout[0], playerLayout[1]);
+            measureChildren(MeasureSpec.makeMeasureSpec(playerLayout[2], MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(playerLayout[3], MeasureSpec.EXACTLY));
+            return;
+        }
+        playerLayout = null;
         if (renderMode != StreamMode.MODE_2D) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
             return;
@@ -151,6 +184,22 @@ public class StreamContainer extends FrameLayout implements SurfaceHolder.Callba
 
     public void setInputCallbacks(InputCallbacks callbacks) {
         this.mInputCallbacks = callbacks;
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        if (playerLayout == null) {
+            super.onLayout(changed, left, top, right, bottom);
+            return;
+        }
+        for (int i = 0; i < getChildCount(); i++) {
+            android.view.View child = getChildAt(i);
+            child.layout(playerLayout[4], playerLayout[5], playerLayout[4] + playerLayout[2],
+                    playerLayout[5] + playerLayout[3]);
+            // Clip the actual video surface as well as the enclosing Android view.
+            child.setClipBounds(new android.graphics.Rect(-playerLayout[4], -playerLayout[5],
+                    -playerLayout[4] + playerLayout[0], -playerLayout[5] + playerLayout[1]));
+        }
     }
 
     public void setCommitTextEnabled(boolean enabled) {
