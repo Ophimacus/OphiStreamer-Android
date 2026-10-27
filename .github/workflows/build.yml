@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ophistreamer-android-release
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,6 +69,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Do not let an older completed build replace the latest branch's download.
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/moonlight-noir" --jq '.object.sha')
+          if [ "$head_sha" != "$GITHUB_SHA" ]; then
+            echo "Newer source exists; keeping this build as a workflow artifact."
+            exit 0
+          fi
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest out/OphiStreamer-arm64.apk \
             --prerelease \
